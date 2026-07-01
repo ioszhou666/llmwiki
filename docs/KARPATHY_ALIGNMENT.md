@@ -41,7 +41,7 @@ Karpathy 的原始定义强调：
 1. `init-wiki`
    - 建立 `raw/wiki/cache/CLAUDE.md/index.md/log.md`
 2. `ingest`
-   - 本地做确定性抽取，生成 source packet 和 source page seed
+   - 本地做确定性抽取，生成 source packet、source page seed 和 topic seed page
 3. `ingest-claude`
    - Claude Code 真正维护 wiki 页面
 4. `query-wiki`
@@ -97,11 +97,10 @@ Karpathy 的原始定义强调：
 
 虽然方向已经纠正，但还有几部分可以继续增强：
 
-1. `ingest-claude` 目前是单 prompt 驱动，还不是更复杂的多阶段 workflow
-2. 还缺少更丰富的概念页、人物页、主题页模板
-3. `lint-wiki` 目前偏结构一致性检查，还可以继续加链接完整性和引用完整性检查
-4. 旧工具层与 wiki 页之间的映射还可以更细，比如自动生成 topic seed page
-5. MCP 仍以本地工具为主，后续可以增加更贴近 wiki curation 的高层工具
+1. 已经补成三阶段 workflow，但还可以继续丰富 topic page、人物页、系统页模板
+2. `lint-wiki` 目前偏结构一致性检查，还可以继续加链接完整性和引用完整性检查
+3. topic seed page 已自动生成，但后续还可以继续增强 seed 质量和聚类策略
+4. MCP 仍以本地工具为主，后续可以增加更贴近 wiki curation 的高层工具
 
 ## 7. 当前结论
 

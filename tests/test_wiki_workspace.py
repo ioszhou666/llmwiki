@@ -32,10 +32,18 @@ def test_ingest_local_creates_source_pages_and_packets(tmp_path: Path) -> None:
 
     assert summary["ingested"] == 2
     source_pages = summary["source_pages"]
+    topic_pages = summary["topic_pages"]
     assert any("product_notes" in path for path in source_pages)
     assert any("gauss" in path for path in source_pages)
+    assert topic_pages
+    assert any("wiki/topics/" in path for path in topic_pages)
     assert any(path.name.startswith("raw--product_notes") for path in (tmp_path / "cache" / "extracted").glob("*.md"))
-    assert (tmp_path / "wiki" / "index.md").read_text(encoding="utf-8")
+    index_text = (tmp_path / "wiki" / "index.md").read_text(encoding="utf-8")
+    assert "## Topic Pages" in index_text
+    assert "wiki/topics/" in index_text
+    topic_text = (tmp_path / topic_pages[0]).read_text(encoding="utf-8")
+    assert "## Related Source Pages" in topic_text
+    assert "## Synthesis Draft" in topic_text
 
 
 def test_query_and_lint_operate_on_wiki_pages(tmp_path: Path) -> None:
@@ -68,6 +76,7 @@ def test_workspace_builds_claude_prompts_and_playbook(tmp_path: Path) -> None:
     assert "Workflow A: Ingest Raw Sources Into Wiki" in playbook
     assert "wiki://claude-playbook" in playbook
     assert "source-curation" in playbook
+    assert "Topic Merge Rules" in playbook
 
     ingest_prompt = workspace.build_ingest_prompt()
     assert "Never modify raw/ sources." in ingest_prompt
@@ -81,6 +90,8 @@ def test_workspace_builds_claude_prompts_and_playbook(tmp_path: Path) -> None:
         "index-and-log-finalize",
     ]
     assert "wiki/topics/" in ingest_workflow[1].prompt
+    assert "Start from existing seed pages under wiki/topics/" in ingest_workflow[1].prompt
+    assert "merge if two pages share the same core entity or process name" in ingest_workflow[1].prompt
     assert "wiki/log.md" in ingest_workflow[2].prompt
 
     query_prompt = workspace.build_query_prompt("source-backed")

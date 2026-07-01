@@ -23,7 +23,8 @@ project/
 ├─ wiki/
 │  ├─ index.md
 │  ├─ log.md
-│  └─ sources/
+│  ├─ sources/
+│  └─ topics/
 ├─ cache/
 │  └─ extracted/
 ├─ output/
@@ -41,6 +42,8 @@ project/
   - 全局入口
 - `wiki/log.md`
   - ingest/query/lint 的操作日志
+- `wiki/topics/`
+  - 跨 source 的主题页、概念页、流程页
 - `cache/extracted/`
   - 本地确定性抽取结果，供 Claude ingest 时参考
 - `Permission.json`
@@ -74,7 +77,7 @@ llm-wiki-mcp --project-root D:\llmwiki\demo_workspace
 - `bootstrap-demo`
   - 创建一个 Karpathy 风格 demo 工作区
 - `ingest`
-  - 本地确定性抽取 raw source，并生成 source packet 与 source page seed
+  - 本地确定性抽取 raw source，并生成 source packet、source page seed 与 topic seed page
 - `ingest-claude`
   - 调 Claude Code 对 wiki 页面做真正的整理和更新
 - `claude-playbook`
@@ -83,6 +86,7 @@ llm-wiki-mcp --project-root D:\llmwiki\demo_workspace
   - 输出标准 ingest prompt，适合直接贴给 Claude Code
 - `print-ingest-workflow`
   - 输出三阶段 ingest workflow prompt，适合在 Claude Code 中分步执行
+  - 第二阶段会要求 Claude 从 `wiki/topics/` seed 起步，并按合并规则收敛重复 topic
 - `print-query-prompt`
   - 输出标准 query prompt，适合直接贴给 Claude Code
 - `query-wiki`
@@ -164,11 +168,12 @@ claude mcp add llmwiki -- python -m llm_wiki.mcp_server --project-root D:\llmwik
 - `raw/wiki/schema` 主结构
 - `ingest / query / lint` 主命令
 - Claude Code 主控 ingest/query 流程
+- 自动 topic seed page 生成与 topic merge guidance
 - MCP 的 wiki 资源和工具入口
 - deny 路径的结果级过滤
 
 测试状态：
 
 ```text
-28 passed
+30 passed
 ```

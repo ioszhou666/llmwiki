@@ -50,10 +50,12 @@ llm-wiki --project-root D:\llmwiki\demo ingest
 
 - `cache/extracted/*.md`
 - `wiki/sources/*.md`
+- `wiki/topics/*.md`
 - `wiki/index.md`
 - `wiki/log.md`
 
 本地结果不是最终 wiki，只是给 Claude 一个确定性起点。
+其中 `wiki/topics/*.md` 是自动生成的 seed topic page，方便 Claude 在后续 topic-synthesis 阶段直接做合并和深化。
 
 ### 3.3 在 Claude Code 中打开项目目录
 
@@ -72,7 +74,7 @@ llm-wiki --project-root D:\llmwiki\demo ingest
 1. 先阅读 CLAUDE.md、wiki/index.md、wiki/log.md
 2. 阅读 raw/ 和 cache/extracted/ 中的资料
 3. 更新 wiki/sources/*.md
-4. 如果有必要，新建更高层的 topic/concept 页面
+4. 基于 `wiki/topics/*.md` seed 做 topic/concept 页面合并与深化，尽量避免重复页面
 5. 更新 wiki/index.md
 6. 在 wiki/log.md 追加本次整理记录
 7. 不要修改 raw/
@@ -115,6 +117,10 @@ llm-wiki --project-root D:\llmwiki\demo print-ingest-workflow
 3. `index-and-log-finalize`
 
 如果你在 Claude Code 里手工操作，这个入口比单个大 prompt 更稳定。
+其中 `topic-synthesis` 阶段已经内置两类关键约束：
+
+- 先从已有 `wiki/topics/` seed page 出发，不优先新建重名或近义页
+- 遇到同一系统、流程、决策边界的重复 topic 时，按 merge rules 合并
 
 ### 4.4 输出标准 query prompt
 
@@ -184,8 +190,8 @@ claude mcp add llmwiki -- llm-wiki-mcp --project-root D:\llmwiki\demo
 1. 先读 `wiki://curation-status`
 2. 再读 `wiki://claude-playbook`
 3. 调 `ingest_wiki_local`
-4. 调 `get_ingest_prompt`
-5. 再按 prompt 维护 wiki
+4. 调 `get_ingest_workflow`
+5. 按三阶段 workflow 维护 wiki
 
 ## 7. 当前最推荐的实际调用顺序
 
@@ -209,9 +215,9 @@ claude mcp add llmwiki -- llm-wiki-mcp --project-root D:\llmwiki\demo
 ### 8.2 `ingest` 和 `ingest-claude` 有什么区别？
 
 - `ingest`
-  - 本地 deterministic seed
+  - 本地 deterministic seed，会生成 source page、topic seed page 和 extracted packet
 - `ingest-claude`
-  - Claude 真正维护 wiki
+  - Claude 真正维护 wiki，并按 staged workflow 执行 source-curation、topic-synthesis、index-and-log-finalize
 
 ### 8.3 MCP 和 CLI 哪个更推荐？
 

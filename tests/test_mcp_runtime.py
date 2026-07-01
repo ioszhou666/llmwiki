@@ -71,19 +71,22 @@ def test_mcp_runtime_hides_denied_records(tmp_path: Path) -> None:
 def test_mcp_runtime_wiki_flows(tmp_path: Path) -> None:
     runtime = WikiRuntime(project_root=tmp_path)
     try:
-        runtime.wiki_status()
+        initial_status = runtime.wiki_status()
+        assert initial_status["topic_pages"] == 0
         (tmp_path / "raw" / "team_notes.md").write_text(
             "# Team Notes\n\nClaude should maintain a persistent wiki.\n",
             encoding="utf-8",
         )
         ingest = runtime.ingest_wiki_local()
         assert ingest["ingested"] == 1
+        assert ingest["topic_pages"]
         query = runtime.query_wiki_local("persistent wiki")
         assert query["datas"]
         lint = runtime.lint_wiki()
         assert lint["status"] == "ok"
         playbook = runtime.claude_playbook()
         assert "Workflow A: Ingest Raw Sources Into Wiki" in playbook["content"]
+        assert "Topic Merge Rules" in playbook["content"]
         ingest_prompt = runtime.get_ingest_prompt()
         assert "Never modify raw/ sources." in ingest_prompt["prompt"]
         ingest_workflow = runtime.get_ingest_workflow()
@@ -92,6 +95,7 @@ def test_mcp_runtime_wiki_flows(tmp_path: Path) -> None:
             "topic-synthesis",
             "index-and-log-finalize",
         ]
+        assert "Start from existing seed pages under wiki/topics/" in ingest_workflow["stages"][1]["prompt"]
         query_prompt = runtime.get_query_prompt("persistent wiki")
         assert "persistent wiki" in query_prompt["prompt"]
     finally:

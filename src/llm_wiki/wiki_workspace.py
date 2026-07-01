@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +29,15 @@ class SourcePacket:
 class WorkflowPrompt:
     stage: str
     prompt: str
+
+
+@dataclass(slots=True)
+class TopicSeed:
+    slug: str
+    title: str
+    source_pages: list[str]
+    evidence_points: list[str]
+    keywords: list[str]
 
 
 class WikiWorkspace:
@@ -79,6 +89,7 @@ class WikiWorkspace:
             "log_md_exists": self.log_md.exists(),
             "raw_sources": len(self.list_raw_sources()),
             "wiki_pages": len(list(self.wiki_root.rglob("*.md"))),
+            "topic_pages": len(list(self.topics_root.glob("*.md"))),
         }
 
     def list_raw_sources(self) -> list[Path]:
@@ -96,12 +107,16 @@ class WikiWorkspace:
         for packet in packets:
             self._write_extracted_packet(packet)
             self._write_source_page(packet)
+        topic_seeds = self._build_topic_seeds(packets)
+        for topic_seed in topic_seeds:
+            self._write_topic_seed_page(topic_seed)
         self._refresh_index(packets)
         self._append_log(
             "ingest-local",
             {
                 "count": len(packets),
                 "sources": [packet.rel_path for packet in packets],
+                "topic_seeds": [seed.slug for seed in topic_seeds],
             },
         )
         return {
@@ -109,6 +124,7 @@ class WikiWorkspace:
             "raw_sources": len(sources),
             "ingested": len(packets),
             "source_pages": [packet.wiki_page for packet in packets],
+            "topic_pages": [f"wiki/topics/{seed.slug}.md" for seed in topic_seeds],
             "index_page": self.index_md.relative_to(self.project_root).as_posix(),
             "log_page": self.log_md.relative_to(self.project_root).as_posix(),
         }
@@ -200,9 +216,15 @@ class WikiWorkspace:
                     shared_header
                     + "Stage: topic-synthesis\n"
                     + "1. Read wiki/sources/*.md and identify themes that deserve shared topic or concept pages.\n"
-                    + "2. Create or update pages under wiki/topics/ when multiple sources converge on one operational topic, concept, project, or decision.\n"
-                    + "3. Prefer a small number of durable topic pages over many thin pages.\n"
-                    + "4. Add backlinks or references from source pages when useful, but keep the main work in wiki/topics/.\n"
+                    + "2. Start from existing seed pages under wiki/topics/ and strengthen them instead of creating duplicates when possible.\n"
+                    + "3. Create or update pages under wiki/topics/ when multiple sources converge on one operational topic, concept, project, or decision.\n"
+                    + "4. Prefer a small number of durable topic pages over many thin pages.\n"
+                    + "5. Merge overlapping topic pages when they describe the same idea, workflow, system, or decision boundary.\n"
+                    + "6. Use these merge rules:\n"
+                    + "   - merge if two pages share the same core entity or process name\n"
+                    + "   - merge if one page is only a narrower wording variant of another\n"
+                    + "   - do not merge if one page is a source-specific factual summary and the other is a cross-source synthesis\n"
+                    + "7. Add backlinks or references from source pages when useful, but keep the main work in wiki/topics/.\n"
                     + f"Existing source pages:\n{json.dumps(source_pages, ensure_ascii=False, indent=2)}\n"
                     + f"Existing topic pages:\n{json.dumps(topic_pages, ensure_ascii=False, indent=2)}\n"
                     + "Return a short plain-text summary of topic pages you created or updated."
@@ -247,6 +269,10 @@ class WikiWorkspace:
             "   - topic-synthesis\n"
             "   - index-and-log-finalize\n"
             "5. Never edit `raw/`.\n\n"
+            "### Topic Merge Rules\n\n"
+            "- Strengthen an existing topic page before creating a new overlapping page.\n"
+            "- Merge pages that clearly describe the same system, workflow, decision, or business theme.\n"
+            "- Keep source-specific summary pages under `wiki/sources/` and cross-source synthesis under `wiki/topics/`.\n\n"
             "## Workflow B: Query The Wiki\n\n"
             "1. Read `wiki/index.md` to find relevant areas.\n"
             "2. Inspect linked pages and `wiki/log.md` when recent curation matters.\n"
@@ -364,8 +390,32 @@ class WikiWorkspace:
         )
         target.write_text(content, encoding="utf-8")
 
+    def _write_topic_seed_page(self, topic_seed: TopicSeed) -> None:
+        target = self.topics_root / f"{topic_seed.slug}.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source_lines = "\n".join(f"- `{page}`" for page in topic_seed.source_pages) or "- None"
+        evidence_lines = "\n".join(f"- {item}" for item in topic_seed.evidence_points) or "- Pending synthesis"
+        keyword_lines = ", ".join(f"`{item}`" for item in topic_seed.keywords) or "`pending`"
+        content = (
+            f"# Topic: {topic_seed.title}\n\n"
+            "## Topic Type\n\n"
+            "_Seed topic page generated by deterministic ingest. Claude should refine and merge when needed._\n\n"
+            "## Candidate Keywords\n\n"
+            f"{keyword_lines}\n\n"
+            "## Related Source Pages\n\n"
+            f"{source_lines}\n\n"
+            "## Evidence Points\n\n"
+            f"{evidence_lines}\n\n"
+            "## Synthesis Draft\n\n"
+            "- What stable concept, workflow, or decision boundary ties these sources together?\n"
+            "- Should this topic merge with an existing topic page?\n"
+            "- What facts belong here instead of staying only in source pages?\n"
+        )
+        target.write_text(content, encoding="utf-8")
+
     def _refresh_index(self, packets: list[SourcePacket]) -> None:
         source_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.sources_root.glob("*.md"))
+        topic_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.topics_root.glob("*.md"))
         lines = [
             "# LLM Wiki Index",
             "",
@@ -380,12 +430,19 @@ class WikiWorkspace:
         ]
         for page in source_pages:
             lines.append(f"- [{Path(page).stem}]({page})")
+        lines.extend(["", "## Topic Pages", ""])
+        if topic_pages:
+            for page in topic_pages:
+                lines.append(f"- [{Path(page).stem}]({page})")
+        else:
+            lines.append("_No topic pages yet._")
         lines.extend(
             [
                 "",
                 "## Curation Notes",
                 "",
                 "- Create higher-level concept pages when multiple source pages converge on one topic.",
+                "- Merge overlapping topic pages instead of proliferating synonyms.",
                 "- Keep factual claims tied back to a source page or raw source.",
             ]
         )
@@ -408,6 +465,100 @@ class WikiWorkspace:
             if len(cleaned) >= limit:
                 break
         return cleaned
+
+    def _build_topic_seeds(self, packets: list[SourcePacket]) -> list[TopicSeed]:
+        grouped: dict[str, dict[str, object]] = {}
+        for packet in packets:
+            for topic_phrase in self._extract_topic_phrases(packet):
+                slug = self._slugify_topic(topic_phrase)
+                if not slug:
+                    continue
+                bucket = grouped.setdefault(
+                    slug,
+                    {
+                        "title": self._display_topic(topic_phrase),
+                        "source_pages": [],
+                        "evidence_points": [],
+                        "keywords": Counter(),
+                    },
+                )
+                if packet.wiki_page not in bucket["source_pages"]:
+                    bucket["source_pages"].append(packet.wiki_page)
+                for point in packet.key_points[:3]:
+                    if point not in bucket["evidence_points"]:
+                        bucket["evidence_points"].append(point)
+                for keyword in self._topic_keywords_from_phrase(topic_phrase):
+                    bucket["keywords"][keyword] += 1
+        topic_seeds: list[TopicSeed] = []
+        for slug, bucket in grouped.items():
+            source_pages = bucket["source_pages"]
+            evidence_points = bucket["evidence_points"][:5]
+            keywords = [item for item, _count in bucket["keywords"].most_common(6)]
+            if not source_pages:
+                continue
+            topic_seeds.append(
+                TopicSeed(
+                    slug=slug,
+                    title=bucket["title"],
+                    source_pages=source_pages,
+                    evidence_points=evidence_points,
+                    keywords=keywords,
+                )
+            )
+        topic_seeds.sort(key=lambda item: (len(item.source_pages), item.slug), reverse=True)
+        return topic_seeds
+
+    def _extract_topic_phrases(self, packet: SourcePacket) -> list[str]:
+        phrases: list[str] = []
+        title_phrase = self._normalize_topic_phrase(packet.title)
+        if title_phrase:
+            phrases.append(title_phrase)
+        for point in packet.key_points:
+            for phrase in re.findall(r"[A-Za-z][A-Za-z0-9 _-]{2,}|[\u4e00-\u9fff]{2,}", point):
+                normalized = self._normalize_topic_phrase(phrase)
+                if normalized and normalized not in phrases:
+                    phrases.append(normalized)
+        focused: list[str] = []
+        for phrase in phrases:
+            if self._is_useful_topic_phrase(phrase):
+                focused.append(phrase)
+        return focused[:5]
+
+    def _normalize_topic_phrase(self, phrase: str) -> str:
+        normalized = re.sub(r"\s+", " ", phrase).strip(" -_:,.")
+        return normalized
+
+    def _is_useful_topic_phrase(self, phrase: str) -> bool:
+        lowered = phrase.lower()
+        stop_phrases = {
+            "product",
+            "notes",
+            "runbook",
+            "first release",
+            "source",
+            "summary",
+            "preview",
+        }
+        if len(lowered) < 4:
+            return False
+        return lowered not in stop_phrases
+
+    def _slugify_topic(self, phrase: str) -> str:
+        normalized = phrase.lower().replace("/", " ").replace("\\", " ")
+        normalized = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", normalized)
+        normalized = normalized.strip("-")
+        if not normalized:
+            return ""
+        return normalized[:60]
+
+    def _display_topic(self, phrase: str) -> str:
+        if re.search(r"[\u4e00-\u9fff]", phrase):
+            return phrase
+        return " ".join(part.capitalize() for part in phrase.split())
+
+    def _topic_keywords_from_phrase(self, phrase: str) -> list[str]:
+        tokens = re.findall(r"[A-Za-z0-9_.+-]+|[\u4e00-\u9fff]{2,}", phrase.lower())
+        return [token for token in tokens if token not in {"the", "and", "for", "with"}]
 
     def _score_text(self, question: str, text: str) -> int:
         tokens = self._tokens(question)
@@ -459,6 +610,8 @@ class WikiWorkspace:
             "- Append factual entries to `wiki/log.md` whenever the wiki changes.\n"
             "- Prefer updating existing concept pages over creating duplicates.\n"
             "- Cite raw sources by path inside the relevant source page.\n"
+            "- Use `wiki/topics/` for cross-source synthesis, not source-local facts.\n"
+            "- Merge overlapping topic pages when they represent the same concept or workflow.\n"
         )
 
     def _default_index_md(self) -> str:
