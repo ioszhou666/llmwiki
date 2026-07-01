@@ -61,6 +61,15 @@ class WikiRuntime:
     def lint_wiki(self) -> dict[str, object]:
         return self.wiki_workspace.lint()
 
+    def claude_playbook(self) -> dict[str, str]:
+        return {"content": self.wiki_workspace.build_claude_playbook()}
+
+    def get_ingest_prompt(self, source: str | None = None) -> dict[str, str]:
+        return {"prompt": self.wiki_workspace.build_ingest_prompt(source=source)}
+
+    def get_query_prompt(self, question: str, limit: int = 6) -> dict[str, str]:
+        return {"prompt": self.wiki_workspace.build_query_prompt(question, limit=limit)}
+
     def list_document_paths(self) -> list[str]:
         return self._visible_document_paths()
 

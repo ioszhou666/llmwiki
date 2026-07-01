@@ -82,5 +82,11 @@ def test_mcp_runtime_wiki_flows(tmp_path: Path) -> None:
         assert query["datas"]
         lint = runtime.lint_wiki()
         assert lint["status"] == "ok"
+        playbook = runtime.claude_playbook()
+        assert "Workflow A: Ingest Raw Sources Into Wiki" in playbook["content"]
+        ingest_prompt = runtime.get_ingest_prompt()
+        assert "Do not modify raw/ sources." in ingest_prompt["prompt"]
+        query_prompt = runtime.get_query_prompt("persistent wiki")
+        assert "persistent wiki" in query_prompt["prompt"]
     finally:
         runtime.close()

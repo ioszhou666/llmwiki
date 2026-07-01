@@ -40,6 +40,10 @@ def create_server(project_root: Path, db_path: Path | None = None):
 
         return json.dumps(runtime.wiki_status(), ensure_ascii=False, indent=2)
 
+    @server.resource("wiki://claude-playbook", name="claude-playbook", mime_type="text/markdown")
+    def wiki_claude_playbook() -> str:
+        return runtime.claude_playbook()["content"]
+
     @server.tool(name="index_documents", description="Index docs/ into the local SQLite and FTS store.")
     def index_documents() -> dict[str, object]:
         return runtime.index_documents()
@@ -59,6 +63,14 @@ def create_server(project_root: Path, db_path: Path | None = None):
     @server.tool(name="lint_wiki", description="Check whether raw/, wiki/, index.md and log.md stay aligned.")
     def lint_wiki() -> dict[str, object]:
         return runtime.lint_wiki()
+
+    @server.tool(name="get_ingest_prompt", description="Get the canonical Claude Code ingest prompt for this project.")
+    def get_ingest_prompt(source: str | None = None) -> dict[str, str]:
+        return runtime.get_ingest_prompt(source=source)
+
+    @server.tool(name="get_query_prompt", description="Get the canonical Claude Code query prompt for this project.")
+    def get_query_prompt(question: str, limit: int = 6) -> dict[str, str]:
+        return runtime.get_query_prompt(question, limit=limit)
 
     @server.tool(name="list_document_paths", description="List every indexed relative document path.")
     def list_document_paths() -> dict[str, list[str]]:

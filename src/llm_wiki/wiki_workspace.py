@@ -189,6 +189,39 @@ class WikiWorkspace:
             "Return a concise plain-text answer."
         )
 
+    def build_claude_playbook(self) -> str:
+        self.initialize()
+        return (
+            "# Claude Code Playbook\n\n"
+            "## Workflow A: Ingest Raw Sources Into Wiki\n\n"
+            "1. Open the project root.\n"
+            "2. Read `CLAUDE.md`, `wiki/index.md`, and `wiki/log.md` first.\n"
+            "3. Review files in `raw/` and deterministic packets in `cache/extracted/`.\n"
+            "4. Update `wiki/sources/*.md` and any topic pages that should synthesize multiple sources.\n"
+            "5. Refresh `wiki/index.md` if navigation changed.\n"
+            "6. Append a factual entry to `wiki/log.md`.\n"
+            "7. Never edit `raw/`.\n\n"
+            "## Workflow B: Query The Wiki\n\n"
+            "1. Read `wiki/index.md` to find relevant areas.\n"
+            "2. Inspect linked pages and `wiki/log.md` when recent curation matters.\n"
+            "3. Answer from `wiki/` first.\n"
+            "4. If the wiki is insufficient, state the missing coverage clearly.\n\n"
+            "## Recommended CLI Helpers\n\n"
+            f"- `llm-wiki --project-root {self.project_root.as_posix()} ingest`\n"
+            f"- `llm-wiki --project-root {self.project_root.as_posix()} ingest-claude`\n"
+            f"- `llm-wiki --project-root {self.project_root.as_posix()} query-wiki --question \"...\"`\n"
+            f"- `llm-wiki --project-root {self.project_root.as_posix()} query-wiki-claude --question \"...\"`\n"
+            f"- `llm-wiki --project-root {self.project_root.as_posix()} lint-wiki`\n\n"
+            "## Recommended MCP Resources / Tools\n\n"
+            "- Resource: `wiki://curation-status`\n"
+            "- Resource: `wiki://claude-playbook`\n"
+            "- Tool: `ingest_wiki_local`\n"
+            "- Tool: `query_wiki_local`\n"
+            "- Tool: `lint_wiki`\n"
+            "- Tool: `get_ingest_prompt`\n"
+            "- Tool: `get_query_prompt`\n"
+        )
+
     def build_demo_project(self, reset: bool = True) -> Path:
         if reset and self.project_root.exists():
             for child in self.project_root.iterdir():

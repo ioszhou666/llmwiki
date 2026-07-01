@@ -53,3 +53,25 @@ def test_query_and_lint_operate_on_wiki_pages(tmp_path: Path) -> None:
 
     lint = workspace.lint()
     assert lint["status"] == "ok"
+
+
+def test_workspace_builds_claude_prompts_and_playbook(tmp_path: Path) -> None:
+    workspace = WikiWorkspace(tmp_path)
+    workspace.initialize()
+    (tmp_path / "raw" / "ops.md").write_text(
+        "# Ops\n\nKeep wiki curation factual and source-backed.\n",
+        encoding="utf-8",
+    )
+    workspace.ingest_local()
+
+    playbook = workspace.build_claude_playbook()
+    assert "Workflow A: Ingest Raw Sources Into Wiki" in playbook
+    assert "wiki://claude-playbook" in playbook
+
+    ingest_prompt = workspace.build_ingest_prompt()
+    assert "Do not modify raw/ sources." in ingest_prompt
+    assert "cache/extracted/" in ingest_prompt
+
+    query_prompt = workspace.build_query_prompt("source-backed")
+    assert "Retrieved snippets" in query_prompt
+    assert "source-backed" in query_prompt

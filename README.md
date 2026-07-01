@@ -55,6 +55,9 @@ llm-wiki --project-root D:\llmwiki\demo_workspace init-wiki
 llm-wiki --project-root D:\llmwiki\demo_workspace bootstrap-demo --target D:\llmwiki\demo_workspace
 llm-wiki --project-root D:\llmwiki\demo_workspace ingest
 llm-wiki --project-root D:\llmwiki\demo_workspace ingest-claude
+llm-wiki --project-root D:\llmwiki\demo_workspace claude-playbook
+llm-wiki --project-root D:\llmwiki\demo_workspace print-ingest-prompt
+llm-wiki --project-root D:\llmwiki\demo_workspace print-query-prompt --question "当前 wiki 对 CRM migration 的结论是什么"
 llm-wiki --project-root D:\llmwiki\demo_workspace query-wiki --question "gauss runbook 里怎么连接数据库"
 llm-wiki --project-root D:\llmwiki\demo_workspace query-wiki-claude --question "当前 wiki 对 CRM migration 的结论是什么"
 llm-wiki --project-root D:\llmwiki\demo_workspace lint-wiki
@@ -73,6 +76,12 @@ llm-wiki-mcp --project-root D:\llmwiki\demo_workspace
   - 本地确定性抽取 raw source，并生成 source packet 与 source page seed
 - `ingest-claude`
   - 调 Claude Code 对 wiki 页面做真正的整理和更新
+- `claude-playbook`
+  - 输出当前项目推荐的 Claude Code 调用手册
+- `print-ingest-prompt`
+  - 输出标准 ingest prompt，适合直接贴给 Claude Code
+- `print-query-prompt`
+  - 输出标准 query prompt，适合直接贴给 Claude Code
 - `query-wiki`
   - 直接从 `wiki/` 搜索并回答
 - `query-wiki-claude`
@@ -110,9 +119,12 @@ claude mcp add llmwiki -- python -m llm_wiki.mcp_server --project-root D:\llmwik
 
 - wiki 主链路
   - `wiki://curation-status`
+  - `wiki://claude-playbook`
   - `ingest_wiki_local`
   - `query_wiki_local`
   - `lint_wiki`
+  - `get_ingest_prompt`
+  - `get_query_prompt`
 - 辅助工具层
   - `wiki://status`
   - `wiki://permission-policy`

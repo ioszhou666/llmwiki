@@ -46,6 +46,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     lint_parser = subparsers.add_parser("lint-wiki", help="Check raw/wiki/index/log coverage and consistency")
 
+    claude_playbook_parser = subparsers.add_parser(
+        "claude-playbook",
+        help="Print the recommended Claude Code workflow for this llm-wiki project",
+    )
+
+    ingest_prompt_parser = subparsers.add_parser(
+        "print-ingest-prompt",
+        help="Print the canonical ingest prompt for manual Claude Code invocation",
+    )
+    ingest_prompt_parser.add_argument("--source", help="Optional relative source path under raw/")
+
+    query_prompt_parser = subparsers.add_parser(
+        "print-query-prompt",
+        help="Print the canonical query prompt for manual Claude Code invocation",
+    )
+    query_prompt_parser.add_argument("--question", required=True)
+    query_prompt_parser.add_argument("--limit", type=int, default=6)
+
     index_parser = subparsers.add_parser("index", help="Index docs")
     index_parser.add_argument("--db", type=Path, default=None)
 
@@ -128,6 +146,15 @@ def main() -> None:
         return
     if args.command == "lint-wiki":
         print(json.dumps(wiki_workspace.lint(), ensure_ascii=False, indent=2))
+        return
+    if args.command == "claude-playbook":
+        print(wiki_workspace.build_claude_playbook())
+        return
+    if args.command == "print-ingest-prompt":
+        print(wiki_workspace.build_ingest_prompt(source=getattr(args, "source", None)))
+        return
+    if args.command == "print-query-prompt":
+        print(wiki_workspace.build_query_prompt(args.question, limit=args.limit))
         return
 
     docs_root = project_root / "docs"
