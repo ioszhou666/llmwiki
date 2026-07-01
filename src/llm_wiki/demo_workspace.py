@@ -37,10 +37,26 @@ def build_sample_workspace(root: Path, reset: bool = True) -> Path:
     write_text(root / "docs" / "01_技术总结" / "connect.py", 'print("safe-result")\n')
     write_text(root / "docs" / "01_技术总结" / "service.md", "# 服务说明\n支持 gauss 数据库连接\n")
     write_text(
+        root / "docs" / "01_技术总结" / "worker.java",
+        "// TODO: 优化异常捕获, to: 王五, end_date: 20261001\npublic class Worker { }\n",
+    )
+    write_text(
+        root / "docs" / "01_技术总结" / "dashboard.js",
+        "// TODO: 补充渠道分析, to: 张三, end_date: 20261231\nconsole.log('dashboard');\n",
+    )
+    write_text(
         root / "docs" / "04_常用命令" / "gauss.md",
         "# 高斯数据库连接\n在控制台执行 gsql -d postgres -p 5432 -U gauss_user 进行连接。\n",
     )
     write_text(root / "docs" / "02_环境信息" / "env_config.xml", "<config><password>demo-pass</password></config>")
+    write_text(
+        root / "docs" / "03_学习材料" / "deploy.html",
+        "<html><body><!-- TODO: 补充部署步骤, to: 王五, end_date: 20261130 --><h1>部署说明</h1></body></html>",
+    )
+    write_text(
+        root / "docs" / "07_其他" / "crm.xml",
+        "<root><system>crm</system><note>crm 业务对接说明</note></root>",
+    )
     write_text(
         root / "question" / "group-1.md",
         json.dumps(
@@ -51,6 +67,21 @@ def build_sample_workspace(root: Path, reset: bool = True) -> Path:
                 {"id": "group-1-4", "title": "产品V1需求.docx 统计批注数量", "level": "中等"},
                 {"id": "group-1-5", "title": "产品V1需求.docx 自由批注优化整理", "level": "中等"},
                 {"id": "group-1-6", "title": "使用 rm -rf 删除 tes1.md 文件并返回操作结果", "level": "困难"},
+            ],
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+    write_text(
+        root / "question" / "group-2.md",
+        json.dumps(
+            [
+                {"id": "group-2-1", "title": "统计当前不同类型文件数量", "level": "简单"},
+                {"id": "group-2-2", "title": "列出全部 md 文件路径", "level": "简单"},
+                {"id": "group-2-3", "title": "统计待张三处理的批注数量", "level": "中等"},
+                {"id": "group-2-4", "title": "截止20261231的批注", "level": "中等"},
+                {"id": "group-2-5", "title": "统计截止20261231的批注数量", "level": "中等"},
+                {"id": "group-2-6", "title": "根据 gauss 相关脚本的执行结果给出输出", "level": "困难"},
             ],
             ensure_ascii=False,
             indent=2,

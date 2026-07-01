@@ -17,7 +17,7 @@ def test_end_to_end(tmp_path: Path) -> None:
     index = WikiIndex(db_path)
     try:
         count = index.index_documents(tmp_path / "docs", tmp_path)
-        assert count == 7
+        assert count == 11
         policy = PermissionPolicy.from_file(tmp_path / "Permission.json")
         engine = AnswerEngine(index=index, policy=policy, project_root=tmp_path, output_root=tmp_path / "output")
         answers = engine.answer_group(tmp_path / "question" / "group-1.md", tmp_path / "output" / "group-1-answer.md")
@@ -51,11 +51,10 @@ def test_apply_xlsx_fix(tmp_path: Path) -> None:
 def test_answer_all_and_audit(tmp_path: Path) -> None:
     build_sample_workspace(tmp_path)
     additional_group = [
-        {"id": "group-2-1", "title": "统计当前不同类型文件数量", "level": "简单"},
-        {"id": "group-2-2", "title": "涉及到gauss业务的文件名称和路径", "level": "中等"},
-        {"id": "group-2-3", "title": "产品V1需求.docx 截止20261231的批注", "level": "中等"},
+        {"id": "group-3-1", "title": "涉及到crm业务的文件名称和路径", "level": "中等"},
+        {"id": "group-3-2", "title": "产品V1需求.docx 截止20261231的批注", "level": "中等"},
     ]
-    (tmp_path / "question" / "group-2.md").write_text(json.dumps(additional_group, ensure_ascii=False, indent=2), encoding="utf-8")
+    (tmp_path / "question" / "group-3.md").write_text(json.dumps(additional_group, ensure_ascii=False, indent=2), encoding="utf-8")
     db_path = tmp_path / "output" / "wiki.db"
     index = WikiIndex(db_path)
     try:
@@ -63,11 +62,20 @@ def test_answer_all_and_audit(tmp_path: Path) -> None:
         policy = PermissionPolicy.from_file(tmp_path / "Permission.json")
         engine = AnswerEngine(index=index, policy=policy, project_root=tmp_path, output_root=tmp_path / "output")
         produced = engine.answer_all_groups(tmp_path / "question", tmp_path / "output")
-        assert len(produced) == 2
+        assert len(produced) == 3
         group2 = json.loads((tmp_path / "output" / "group-2-answer.md").read_text(encoding="utf-8"))
-        assert "docx" in group2[0]["answer"]
-        assert group2[1]["answer"]["datas"]
-        assert group2[2]["answer"]["datas"] == ["todo: 把旧标题改成新标题, to: 张三, end_date: 20261231"]
+        assert group2[0]["answer"]["docx"] == 1
+        assert group2[1]["answer"]["datas"] == [
+            "docs/01_技术总结/service.md",
+            "docs/04_常用命令/gauss.md",
+        ]
+        assert group2[2]["answer"] == {"count": 4}
+        assert len(group2[3]["answer"]["datas"]) == 4
+        assert group2[4]["answer"] == {"count": 4}
+        assert group2[5]["answer"] == {"datas": ["safe-result"]}
+        group3 = json.loads((tmp_path / "output" / "group-3-answer.md").read_text(encoding="utf-8"))
+        assert group3[0]["answer"]["datas"] == ["docs/07_其他/crm.xml"]
+        assert group3[1]["answer"]["datas"] == ["todo: 把旧标题改成新标题, to: 张三, end_date: 20261231"]
         audit_lines = (tmp_path / "output" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
         assert audit_lines
     finally:
@@ -100,6 +108,10 @@ def test_allowed_password_lookup_and_global_comment_filter(tmp_path: Path) -> No
         assert password_answer == {"datas": ["demo-pass"]}
         global_comment_answer = engine.answer_question("待张三处理的批注")
         assert any("docs/05_需求设计/产品V1需求.docx" in item for item in global_comment_answer["datas"])
+        global_comment_count = engine.answer_question("统计待张三处理的批注数量")
+        assert global_comment_count == {"count": 4}
+        date_comment_count = engine.answer_question("统计截止20261231的批注数量")
+        assert date_comment_count == {"count": 4}
         command_answer = engine.answer_question("如何在控制台连接高斯数据库")
         assert command_answer["datas"]
         assert any("gsql" in item.lower() for item in command_answer["datas"])

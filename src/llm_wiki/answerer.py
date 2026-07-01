@@ -69,6 +69,8 @@ class AnswerEngine:
             answer = {parsed.extension: self.index.count_files_by_extension(parsed.extension)}
         elif parsed.kind == "count_supported_extensions":
             answer = self.index.count_supported_extensions()
+        elif parsed.kind == "list_extension_paths" and parsed.extension:
+            answer = {"datas": self._list_paths_by_extension(parsed.extension)}
         elif parsed.kind == "find_path":
             answer = {"datas": parsed.candidate_paths}
         elif parsed.kind == "file_secret_lookup":
@@ -87,9 +89,15 @@ class AnswerEngine:
         elif parsed.kind == "global_assignee_comments":
             rows = self.index.list_comments(assignee=parsed.assignee)
             answer = {"datas": [f"{row['rel_path']} | {row['text']}" for row in rows]}
+        elif parsed.kind == "global_assignee_comment_count":
+            rows = self.index.list_comments(assignee=parsed.assignee)
+            answer = {"count": len(rows)}
         elif parsed.kind == "global_date_comments":
             rows = self.index.list_comments(due_date=parsed.date_value)
             answer = {"datas": [f"{row['rel_path']} | {row['text']}" for row in rows]}
+        elif parsed.kind == "global_date_comment_count":
+            rows = self.index.list_comments(due_date=parsed.date_value)
+            answer = {"count": len(rows)}
         elif parsed.kind == "fix_document":
             rel_path = self._pick_single_path(parsed.candidate_paths)
             answer = self.apply_fixes(rel_path) if rel_path else {"datas": []}
@@ -300,6 +308,10 @@ class AnswerEngine:
 
     def _pick_single_path(self, paths: list[str]) -> str | None:
         return paths[0] if paths else None
+
+    def _list_paths_by_extension(self, extension: str) -> list[str]:
+        suffix = f".{extension.lower()}"
+        return [rel_path for rel_path in self.index.list_document_paths() if Path(rel_path).suffix.lower() == suffix]
 
     def _select_keyword_document(self, keyword: str, suffixes: set[str]) -> str | None:
         candidates = [keyword]

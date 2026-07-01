@@ -59,6 +59,14 @@ llm-wiki --project-root D:\llmwiki\demo_workspace bootstrap-demo --target D:\llm
 - 开源调研见 `docs/OPEN_SOURCE_RESEARCH.md`
 - 系统设计见 `docs/SYSTEM_DESIGN.md`
 
+## 典型题型
+
+- `统计全项目 docx 总数量`
+- `列出全部 md 文件路径`
+- `统计待张三处理的批注数量`
+- `截止20261231的批注`
+- `根据 gauss 相关脚本的执行结果给出输出`
+
 ## 当前边界
 
 - `doc/ppt/xls` 优先尝试 `LibreOffice` 转换，再回退到 `Tika` 文本提取，最后才是 plain fallback

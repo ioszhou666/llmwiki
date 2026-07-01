@@ -70,6 +70,9 @@ def parse_question(title: str, all_paths: list[str]) -> ParsedQuestion:
     if re.search(r"统计.*不同类型文件.*数量", normalized_title):
         return ParsedQuestion(title, normalized_title, "count_supported_extensions")
 
+    if match := re.search(rf"(?:找出|列出|获取).*(?:全部|所有)?\s*({EXTENSION_PATTERN})\s*文件(?:的)?路径", normalized_title, re.IGNORECASE):
+        return ParsedQuestion(title, normalized_title, "list_extension_paths", extension=match.group(1).lower())
+
     if basename and re.search(SECRET_PATTERN, normalized_title, re.IGNORECASE):
         return ParsedQuestion(title, normalized_title, "file_secret_lookup", basename=basename, candidate_paths=candidate_paths)
 
@@ -100,8 +103,20 @@ def parse_question(title: str, all_paths: list[str]) -> ParsedQuestion:
             date_value=date_value.group(1) if date_value else None,
         )
 
+    if match := re.search(r"(?:统计)?(?:待|由)(.+?)处理的批注数量", normalized_title):
+        return ParsedQuestion(title, normalized_title, "global_assignee_comment_count", assignee=match.group(1).strip())
+
     if match := re.search(r"(?:待|由)(.+?)处理的批注", normalized_title):
         return ParsedQuestion(title, normalized_title, "global_assignee_comments", assignee=match.group(1).strip())
+
+    if match := re.search(rf"(?:统计)?.*(?:截止|到期|end_date[:： ]*){DATE_PATTERN}.*批注数量", normalized_title):
+        date_value = re.search(DATE_PATTERN, match.group(0))
+        return ParsedQuestion(
+            title,
+            normalized_title,
+            "global_date_comment_count",
+            date_value=date_value.group(1) if date_value else None,
+        )
 
     if match := re.search(rf"(?:截止|到期|end_date[:： ]*){DATE_PATTERN}", normalized_title):
         date_value = re.search(DATE_PATTERN, match.group(0))

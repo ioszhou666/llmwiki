@@ -10,6 +10,7 @@ from llm_wiki.security import PermissionPolicy
 def test_parse_question_recognizes_core_patterns() -> None:
     paths = [
         "docs/05_需求设计/产品V1需求.docx",
+        "docs/01_技术总结/service.md",
         "docs/04_常用命令/gauss.md",
         "docs/02_环境信息/env_config.xml",
     ]
@@ -33,6 +34,10 @@ def test_parse_question_recognizes_core_patterns() -> None:
     parsed = parse_question("统计当前不同类型文件数量", paths)
     assert parsed.kind == "count_supported_extensions"
 
+    parsed = parse_question("列出全部 md 文件路径", paths)
+    assert parsed.kind == "list_extension_paths"
+    assert parsed.extension == "md"
+
     parsed = parse_question("根据 gauss 相关脚本的执行结果给出输出", paths)
     assert parsed.kind == "run_document_by_keyword"
 
@@ -44,6 +49,12 @@ def test_parse_question_recognizes_core_patterns() -> None:
 
     parsed = parse_question("待张三处理的批注", paths)
     assert parsed.kind == "global_assignee_comments"
+
+    parsed = parse_question("统计待张三处理的批注数量", paths)
+    assert parsed.kind == "global_assignee_comment_count"
+
+    parsed = parse_question("统计截止20261231的批注数量", paths)
+    assert parsed.kind == "global_date_comment_count"
 
 
 def test_permission_policy_handles_deny_and_password_exception(tmp_path: Path) -> None:

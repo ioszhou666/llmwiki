@@ -60,11 +60,12 @@ def test_cli_validate_runs_end_to_end(tmp_path: Path) -> None:
     assert validate.returncode == 0
     payload = json.loads(validate.stdout)
     assert payload["status"] == "ok"
-    assert payload["indexed_documents"] == 7
-    assert payload["question_groups"] == 1
-    assert payload["answer_outputs"] == ["output/group-1-answer.md"]
+    assert payload["indexed_documents"] == 11
+    assert payload["question_groups"] == 2
+    assert payload["answer_outputs"] == ["output/group-1-answer.md", "output/group-2-answer.md"]
     assert payload["fixed_outputs"] == ["output/fixed/产品V1需求.docx"]
     assert (workspace / "output" / "group-1-answer.md").exists()
+    assert (workspace / "output" / "group-2-answer.md").exists()
     assert (workspace / "output" / "audit.jsonl").exists()
 
 
@@ -90,5 +91,6 @@ def test_cli_release_builds_deliverables(tmp_path: Path) -> None:
     assert (target / "SYSTEM_DESIGN.md").exists()
     assert (target / "VALIDATION_REPORT.md").exists()
     assert (target / "demo_output" / "group-1-answer.md").exists()
+    assert (target / "demo_output" / "group-2-answer.md").exists()
     assert (target / "demo_output" / "audit.jsonl").exists()
     assert (target / "fixed" / "产品V1需求.docx").exists()
