@@ -54,6 +54,15 @@ def test_cli_ask_doctor_and_bootstrap(tmp_path: Path) -> None:
     assert (bootstrap_target / "docs").exists()
     assert (bootstrap_target / "question" / "group-1.md").exists()
 
+    workflow = _run_cli("--project-root", str(bootstrap_target), "print-ingest-workflow", workdir=project_root)
+    assert workflow.returncode == 0
+    workflow_payload = json.loads(workflow.stdout)
+    assert [item["stage"] for item in workflow_payload] == [
+        "source-curation",
+        "topic-synthesis",
+        "index-and-log-finalize",
+    ]
+
 
 def test_cli_validate_runs_end_to_end(tmp_path: Path) -> None:
     project_root = Path(__file__).resolve().parents[1]

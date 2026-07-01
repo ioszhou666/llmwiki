@@ -42,3 +42,20 @@ def test_ask_json_uses_result_field(monkeypatch: object, tmp_path: Path) -> None
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     assert client.ask_json("test") == {"datas": ["ok"]}
+
+
+def test_run_text_prompt_returns_stdout(monkeypatch: object, tmp_path: Path) -> None:
+    executable = tmp_path / "claude.exe"
+    executable.write_text("", encoding="utf-8")
+    client = ClaudeCodeClient(executable=executable, workdir=tmp_path)
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["claude", "-p"],
+            returncode=0,
+            stdout="stage completed",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert client.run_text_prompt("test prompt") == "stage completed"

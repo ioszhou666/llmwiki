@@ -67,10 +67,21 @@ def test_workspace_builds_claude_prompts_and_playbook(tmp_path: Path) -> None:
     playbook = workspace.build_claude_playbook()
     assert "Workflow A: Ingest Raw Sources Into Wiki" in playbook
     assert "wiki://claude-playbook" in playbook
+    assert "source-curation" in playbook
 
     ingest_prompt = workspace.build_ingest_prompt()
-    assert "Do not modify raw/ sources." in ingest_prompt
+    assert "Never modify raw/ sources." in ingest_prompt
     assert "cache/extracted/" in ingest_prompt
+    assert "Stage: source-curation" in ingest_prompt
+
+    ingest_workflow = workspace.build_ingest_workflow()
+    assert [item.stage for item in ingest_workflow] == [
+        "source-curation",
+        "topic-synthesis",
+        "index-and-log-finalize",
+    ]
+    assert "wiki/topics/" in ingest_workflow[1].prompt
+    assert "wiki/log.md" in ingest_workflow[2].prompt
 
     query_prompt = workspace.build_query_prompt("source-backed")
     assert "Retrieved snippets" in query_prompt

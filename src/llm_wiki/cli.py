@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest_claude_parser = subparsers.add_parser(
         "ingest-claude",
-        help="Ask Claude Code to curate wiki pages from raw/ and cache/extracted/",
+        help="Run the staged Claude Code ingest workflow over raw/ and cache/extracted/",
     )
     ingest_claude_parser.add_argument("--source", help="Optional relative source path under raw/")
 
@@ -56,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the canonical ingest prompt for manual Claude Code invocation",
     )
     ingest_prompt_parser.add_argument("--source", help="Optional relative source path under raw/")
+
+    ingest_workflow_parser = subparsers.add_parser(
+        "print-ingest-workflow",
+        help="Print all staged Claude Code ingest prompts in order",
+    )
+    ingest_workflow_parser.add_argument("--source", help="Optional relative source path under raw/")
 
     query_prompt_parser = subparsers.add_parser(
         "print-query-prompt",
@@ -135,7 +141,11 @@ def main() -> None:
     if args.command == "ingest-claude":
         wiki_workspace.ingest_local(source=getattr(args, "source", None))
         client = ClaudeCodeClient(workdir=project_root)
-        print(client.run_text_prompt(wiki_workspace.build_ingest_prompt(source=getattr(args, "source", None)), allow_tools=True))
+        results: list[dict[str, str]] = []
+        for workflow_prompt in wiki_workspace.build_ingest_workflow(source=getattr(args, "source", None)):
+            output = client.run_text_prompt(workflow_prompt.prompt, allow_tools=True)
+            results.append({"stage": workflow_prompt.stage, "summary": output})
+        print(json.dumps(results, ensure_ascii=False, indent=2))
         return
     if args.command == "query-wiki":
         print(json.dumps(wiki_workspace.query_local(args.question, limit=args.limit), ensure_ascii=False, indent=2))
@@ -152,6 +162,13 @@ def main() -> None:
         return
     if args.command == "print-ingest-prompt":
         print(wiki_workspace.build_ingest_prompt(source=getattr(args, "source", None)))
+        return
+    if args.command == "print-ingest-workflow":
+        payload = [
+            {"stage": item.stage, "prompt": item.prompt}
+            for item in wiki_workspace.build_ingest_workflow(source=getattr(args, "source", None))
+        ]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     if args.command == "print-query-prompt":
         print(wiki_workspace.build_query_prompt(args.question, limit=args.limit))

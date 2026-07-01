@@ -68,6 +68,10 @@ def create_server(project_root: Path, db_path: Path | None = None):
     def get_ingest_prompt(source: str | None = None) -> dict[str, str]:
         return runtime.get_ingest_prompt(source=source)
 
+    @server.tool(name="get_ingest_workflow", description="Get the staged Claude Code ingest workflow prompts for this project.")
+    def get_ingest_workflow(source: str | None = None) -> dict[str, list[dict[str, str]]]:
+        return runtime.get_ingest_workflow(source=source)
+
     @server.tool(name="get_query_prompt", description="Get the canonical Claude Code query prompt for this project.")
     def get_query_prompt(question: str, limit: int = 6) -> dict[str, str]:
         return runtime.get_query_prompt(question, limit=limit)

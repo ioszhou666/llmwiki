@@ -9,7 +9,7 @@ from pathlib import Path
 from .extractors import discover_documents, dump_json, extract_document
 
 
-REQUIRED_DIRS = ("raw", "wiki", "wiki/sources", "cache", "cache/extracted", "output")
+REQUIRED_DIRS = ("raw", "wiki", "wiki/sources", "wiki/topics", "cache", "cache/extracted", "output")
 
 
 @dataclass(slots=True)
@@ -24,12 +24,19 @@ class SourcePacket:
     key_points: list[str]
 
 
+@dataclass(slots=True)
+class WorkflowPrompt:
+    stage: str
+    prompt: str
+
+
 class WikiWorkspace:
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root.resolve()
         self.raw_root = self.project_root / "raw"
         self.wiki_root = self.project_root / "wiki"
         self.sources_root = self.wiki_root / "sources"
+        self.topics_root = self.wiki_root / "topics"
         self.cache_root = self.project_root / "cache"
         self.extracted_root = self.cache_root / "extracted"
         self.output_root = self.project_root / "output"
@@ -156,26 +163,64 @@ class WikiWorkspace:
         }
 
     def build_ingest_prompt(self, source: str | None = None) -> str:
+        return self.build_ingest_workflow(source=source)[0].prompt
+
+    def build_ingest_workflow(self, source: str | None = None) -> list[WorkflowPrompt]:
         self.initialize()
         selected = self.list_raw_sources()
         if source:
             source_path = (self.raw_root / source).resolve()
             selected = [path for path in selected if path.resolve() == source_path]
         raw_paths = [path.relative_to(self.project_root).as_posix() for path in selected]
-        return (
+        source_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.sources_root.glob("*.md"))
+        topic_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.topics_root.glob("*.md"))
+        shared_header = (
             "You are maintaining a Karpathy-style LLM Wiki.\n"
             "Operate on the local repository files directly.\n"
             "Follow CLAUDE.md exactly.\n"
-            "Task:\n"
-            "1. Read CLAUDE.md, wiki/index.md, wiki/log.md.\n"
-            "2. Review the raw sources listed below and the deterministic packets in cache/extracted/.\n"
-            "3. Update wiki/sources/*.md and any higher-level concept pages needed.\n"
-            "4. Keep wiki/index.md current.\n"
-            "5. Append a short factual entry to wiki/log.md describing what changed.\n"
-            "6. Do not modify raw/ sources.\n"
-            f"Raw sources to ingest:\n{json.dumps(raw_paths, ensure_ascii=False, indent=2)}\n"
-            "Return a short plain-text summary of files you changed."
+            "Never modify raw/ sources.\n"
         )
+        return [
+            WorkflowPrompt(
+                stage="source-curation",
+                prompt=(
+                    shared_header
+                    + "Stage: source-curation\n"
+                    + "1. Read CLAUDE.md, wiki/index.md, and wiki/log.md.\n"
+                    + "2. Review the raw sources listed below and the deterministic packets in cache/extracted/.\n"
+                    + "3. Update only wiki/sources/*.md pages so each source page has a clean canonical summary, key points, and source-grounded notes.\n"
+                    + "4. Do not create topic pages yet.\n"
+                    + f"Raw sources in scope:\n{json.dumps(raw_paths, ensure_ascii=False, indent=2)}\n"
+                    + "Return a short plain-text summary of the source pages you changed."
+                ),
+            ),
+            WorkflowPrompt(
+                stage="topic-synthesis",
+                prompt=(
+                    shared_header
+                    + "Stage: topic-synthesis\n"
+                    + "1. Read wiki/sources/*.md and identify themes that deserve shared topic or concept pages.\n"
+                    + "2. Create or update pages under wiki/topics/ when multiple sources converge on one operational topic, concept, project, or decision.\n"
+                    + "3. Prefer a small number of durable topic pages over many thin pages.\n"
+                    + "4. Add backlinks or references from source pages when useful, but keep the main work in wiki/topics/.\n"
+                    + f"Existing source pages:\n{json.dumps(source_pages, ensure_ascii=False, indent=2)}\n"
+                    + f"Existing topic pages:\n{json.dumps(topic_pages, ensure_ascii=False, indent=2)}\n"
+                    + "Return a short plain-text summary of topic pages you created or updated."
+                ),
+            ),
+            WorkflowPrompt(
+                stage="index-and-log-finalize",
+                prompt=(
+                    shared_header
+                    + "Stage: index-and-log-finalize\n"
+                    + "1. Refresh wiki/index.md so it links to all important source and topic pages.\n"
+                    + "2. Append a factual entry to wiki/log.md describing what changed in this ingest session.\n"
+                    + "3. Do a brief consistency sweep for broken structure or duplicate pages.\n"
+                    + "4. Keep edits concise and operationally useful.\n"
+                    + "Return a short plain-text summary of the final index/log updates."
+                ),
+            ),
+        ]
 
     def build_query_prompt(self, question: str, limit: int = 6) -> str:
         result = self.query_local(question, limit=limit)
@@ -197,10 +242,11 @@ class WikiWorkspace:
             "1. Open the project root.\n"
             "2. Read `CLAUDE.md`, `wiki/index.md`, and `wiki/log.md` first.\n"
             "3. Review files in `raw/` and deterministic packets in `cache/extracted/`.\n"
-            "4. Update `wiki/sources/*.md` and any topic pages that should synthesize multiple sources.\n"
-            "5. Refresh `wiki/index.md` if navigation changed.\n"
-            "6. Append a factual entry to `wiki/log.md`.\n"
-            "7. Never edit `raw/`.\n\n"
+            "4. Run the staged ingest workflow in order:\n"
+            "   - source-curation\n"
+            "   - topic-synthesis\n"
+            "   - index-and-log-finalize\n"
+            "5. Never edit `raw/`.\n\n"
             "## Workflow B: Query The Wiki\n\n"
             "1. Read `wiki/index.md` to find relevant areas.\n"
             "2. Inspect linked pages and `wiki/log.md` when recent curation matters.\n"
@@ -209,6 +255,7 @@ class WikiWorkspace:
             "## Recommended CLI Helpers\n\n"
             f"- `llm-wiki --project-root {self.project_root.as_posix()} ingest`\n"
             f"- `llm-wiki --project-root {self.project_root.as_posix()} ingest-claude`\n"
+            f"- `llm-wiki --project-root {self.project_root.as_posix()} print-ingest-workflow`\n"
             f"- `llm-wiki --project-root {self.project_root.as_posix()} query-wiki --question \"...\"`\n"
             f"- `llm-wiki --project-root {self.project_root.as_posix()} query-wiki-claude --question \"...\"`\n"
             f"- `llm-wiki --project-root {self.project_root.as_posix()} lint-wiki`\n\n"
@@ -219,6 +266,7 @@ class WikiWorkspace:
             "- Tool: `query_wiki_local`\n"
             "- Tool: `lint_wiki`\n"
             "- Tool: `get_ingest_prompt`\n"
+            "- Tool: `get_ingest_workflow`\n"
             "- Tool: `get_query_prompt`\n"
         )
 

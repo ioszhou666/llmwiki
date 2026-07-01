@@ -102,7 +102,21 @@ llm-wiki --project-root D:\llmwiki\demo print-ingest-prompt
 llm-wiki --project-root D:\llmwiki\demo print-ingest-prompt --source product_v1_requirements.md
 ```
 
-### 4.3 输出标准 query prompt
+### 4.3 输出三阶段 ingest workflow
+
+```powershell
+llm-wiki --project-root D:\llmwiki\demo print-ingest-workflow
+```
+
+它会输出 3 个按顺序执行的 prompt：
+
+1. `source-curation`
+2. `topic-synthesis`
+3. `index-and-log-finalize`
+
+如果你在 Claude Code 里手工操作，这个入口比单个大 prompt 更稳定。
+
+### 4.4 输出标准 query prompt
 
 ```powershell
 llm-wiki --project-root D:\llmwiki\demo print-query-prompt --question "当前 wiki 对 CRM migration 的结论是什么"
@@ -119,6 +133,8 @@ llm-wiki --project-root D:\llmwiki\demo print-query-prompt --question "当前 wi
 ```powershell
 llm-wiki --project-root D:\llmwiki\demo ingest-claude
 ```
+
+当前 `ingest-claude` 内部会顺序执行三阶段 workflow，而不是只发一个大 prompt。
 
 ### 5.2 Claude query
 
@@ -160,6 +176,7 @@ claude mcp add llmwiki -- llm-wiki-mcp --project-root D:\llmwiki\demo
 - `query_wiki_local`
 - `lint_wiki`
 - `get_ingest_prompt`
+- `get_ingest_workflow`
 - `get_query_prompt`
 
 这意味着在 Claude Code 里可以走一条更标准的 agent 路线：
@@ -177,8 +194,8 @@ claude mcp add llmwiki -- llm-wiki-mcp --project-root D:\llmwiki\demo
 1. `bootstrap-demo` 或 `init-wiki`
 2. `ingest`
 3. `claude-playbook`
-4. `print-ingest-prompt`
-5. 在 Claude Code 中执行 wiki 维护
+4. `print-ingest-workflow`
+5. 在 Claude Code 中按三阶段顺序执行 wiki 维护
 6. `lint-wiki`
 7. `print-query-prompt`
 8. 在 Claude Code 中执行基于 wiki 的问答
@@ -211,6 +228,7 @@ claude mcp add llmwiki -- llm-wiki-mcp --project-root D:\llmwiki\demo
 - `query-wiki-claude`
 - `claude-playbook`
 - `print-ingest-prompt`
+- `print-ingest-workflow`
 - `print-query-prompt`
 
 这样更符合 `LLM Wiki` 的真实工作方式，也更接近 Claude Code 作为 wiki maintainer 的定位。

@@ -67,6 +67,14 @@ class WikiRuntime:
     def get_ingest_prompt(self, source: str | None = None) -> dict[str, str]:
         return {"prompt": self.wiki_workspace.build_ingest_prompt(source=source)}
 
+    def get_ingest_workflow(self, source: str | None = None) -> dict[str, list[dict[str, str]]]:
+        return {
+            "stages": [
+                {"stage": item.stage, "prompt": item.prompt}
+                for item in self.wiki_workspace.build_ingest_workflow(source=source)
+            ]
+        }
+
     def get_query_prompt(self, question: str, limit: int = 6) -> dict[str, str]:
         return {"prompt": self.wiki_workspace.build_query_prompt(question, limit=limit)}
 
