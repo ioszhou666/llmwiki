@@ -38,11 +38,13 @@ def test_mcp_runtime_resources_snapshot(tmp_path: Path) -> None:
     runtime = WikiRuntime(project_root=tmp_path)
     try:
         runtime.index_documents()
+        runtime.wiki_workspace.initialize()
         snapshot = runtime.resources_snapshot()
         assert "document_paths" in snapshot
         assert "question_groups" in snapshot
         assert snapshot["permission_policy"]["command"]["deny"] == ["Remove-Item", "del*"]
         assert snapshot["security_summary"]["enforced_on_runtime_tools"] is True
+        assert snapshot["wiki_status"]["wiki_exists"] is True
     finally:
         runtime.close()
 
@@ -62,5 +64,23 @@ def test_mcp_runtime_hides_denied_records(tmp_path: Path) -> None:
         assert denied_record == {"error_msg": "高危命令，拒绝访问"}
         denied_comments = runtime.list_comments(assignee="张三")
         assert all(item["rel_path"] != "docs/99_mock_system_dir/etc/root.md" for item in denied_comments["datas"])
+    finally:
+        runtime.close()
+
+
+def test_mcp_runtime_wiki_flows(tmp_path: Path) -> None:
+    runtime = WikiRuntime(project_root=tmp_path)
+    try:
+        runtime.wiki_status()
+        (tmp_path / "raw" / "team_notes.md").write_text(
+            "# Team Notes\n\nClaude should maintain a persistent wiki.\n",
+            encoding="utf-8",
+        )
+        ingest = runtime.ingest_wiki_local()
+        assert ingest["ingested"] == 1
+        query = runtime.query_wiki_local("persistent wiki")
+        assert query["datas"]
+        lint = runtime.lint_wiki()
+        assert lint["status"] == "ok"
     finally:
         runtime.close()

@@ -47,6 +47,17 @@ class ClaudeCodeClient:
             raise RuntimeError("Claude Code returned a non-text result")
         return json.loads(raw)
 
+    def run_text_prompt(self, prompt: str, allow_tools: bool = True) -> str:
+        if not self.is_available():
+            raise RuntimeError("Claude Code is not installed")
+        args = ["-p", prompt]
+        if not allow_tools:
+            args.extend(["--tools", ""])
+        result = self._run(*args)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "Claude Code prompt execution failed")
+        return result.stdout.strip()
+
     def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
         if not self.executable:
             raise RuntimeError("Claude Code executable is unavailable")

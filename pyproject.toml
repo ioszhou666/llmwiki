@@ -1,7 +1,7 @@
 [project]
 name = "llm-wiki"
 version = "0.1.0"
-description = "Local wiki workbench for document retrieval, comment governance, and secure question answering."
+description = "Claude Code oriented LLM Wiki workbench with raw/wiki/schema architecture."
 requires-python = ">=3.11"
 dependencies = [
   "openpyxl",

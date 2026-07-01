@@ -48,6 +48,9 @@ def test_cli_ask_doctor_and_bootstrap(tmp_path: Path) -> None:
     bootstrap_target = tmp_path / "bootstrapped"
     bootstrap = _run_cli("--project-root", str(workspace), "bootstrap-demo", "--target", str(bootstrap_target), workdir=project_root)
     assert bootstrap.returncode == 0
+    assert (bootstrap_target / "raw").exists()
+    assert (bootstrap_target / "wiki" / "index.md").exists()
+    assert (bootstrap_target / "CLAUDE.md").exists()
     assert (bootstrap_target / "docs").exists()
     assert (bootstrap_target / "question" / "group-1.md").exists()
 

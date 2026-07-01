@@ -7,6 +7,7 @@ from typing import Any
 from .answerer import AnswerEngine
 from .indexer import WikiIndex
 from .security import PermissionPolicy
+from .wiki_workspace import WikiWorkspace
 
 
 class WikiRuntime:
@@ -19,6 +20,7 @@ class WikiRuntime:
         self.db_path = (db_path or self.output_root / "wiki.db").resolve()
         self.index = WikiIndex(self.db_path)
         self.policy = PermissionPolicy.from_file(self.permission_path)
+        self.wiki_workspace = WikiWorkspace(self.project_root)
         self.engine = AnswerEngine(
             index=self.index,
             policy=self.policy,
@@ -34,14 +36,30 @@ class WikiRuntime:
         return {"indexed": count, "db_path": self.db_path.as_posix()}
 
     def doctor(self) -> dict[str, object]:
+        self.wiki_workspace.initialize()
         return {
             "project_root": self.project_root.as_posix(),
+            "raw_exists": self.wiki_workspace.raw_root.exists(),
+            "wiki_exists": self.wiki_workspace.wiki_root.exists(),
             "docs_exists": self.docs_root.exists(),
             "question_exists": self.question_root.exists(),
             "output_exists": self.output_root.exists(),
             "db_path": self.db_path.as_posix(),
             "document_count": len(self._visible_document_paths()),
+            "raw_source_count": len(self.wiki_workspace.list_raw_sources()),
         }
+
+    def wiki_status(self) -> dict[str, object]:
+        return self.wiki_workspace.initialize()
+
+    def ingest_wiki_local(self, source: str | None = None) -> dict[str, object]:
+        return self.wiki_workspace.ingest_local(source=source)
+
+    def query_wiki_local(self, question: str, limit: int = 5) -> dict[str, object]:
+        return self.wiki_workspace.query_local(question, limit=limit)
+
+    def lint_wiki(self) -> dict[str, object]:
+        return self.wiki_workspace.lint()
 
     def list_document_paths(self) -> list[str]:
         return self._visible_document_paths()
@@ -118,6 +136,7 @@ class WikiRuntime:
     def resources_snapshot(self) -> dict[str, object]:
         return {
             "project_root": self.project_root.as_posix(),
+            "wiki_status": self.wiki_status(),
             "document_paths": self.list_document_paths(),
             "question_groups": self.list_question_groups(),
             "permission_policy": self.permission_policy_snapshot(),

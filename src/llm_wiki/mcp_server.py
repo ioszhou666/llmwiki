@@ -34,6 +34,12 @@ def create_server(project_root: Path, db_path: Path | None = None):
 
         return json.dumps(runtime.security_summary(), ensure_ascii=False, indent=2)
 
+    @server.resource("wiki://curation-status", name="curation-status", mime_type="application/json")
+    def wiki_curation_status() -> str:
+        import json
+
+        return json.dumps(runtime.wiki_status(), ensure_ascii=False, indent=2)
+
     @server.tool(name="index_documents", description="Index docs/ into the local SQLite and FTS store.")
     def index_documents() -> dict[str, object]:
         return runtime.index_documents()
@@ -41,6 +47,18 @@ def create_server(project_root: Path, db_path: Path | None = None):
     @server.tool(name="doctor", description="Inspect llm-wiki runtime status for the current project root.")
     def doctor() -> dict[str, object]:
         return runtime.doctor()
+
+    @server.tool(name="ingest_wiki_local", description="Seed wiki pages from raw/ using deterministic extraction packets.")
+    def ingest_wiki_local(source: str | None = None) -> dict[str, object]:
+        return runtime.ingest_wiki_local(source=source)
+
+    @server.tool(name="query_wiki_local", description="Search the curated wiki pages instead of raw indexed docs.")
+    def query_wiki_local(question: str, limit: int = 5) -> dict[str, object]:
+        return runtime.query_wiki_local(question, limit=limit)
+
+    @server.tool(name="lint_wiki", description="Check whether raw/, wiki/, index.md and log.md stay aligned.")
+    def lint_wiki() -> dict[str, object]:
+        return runtime.lint_wiki()
 
     @server.tool(name="list_document_paths", description="List every indexed relative document path.")
     def list_document_paths() -> dict[str, list[str]]:
