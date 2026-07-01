@@ -1,49 +1,161 @@
 # llm-wiki 开源方案调研
 
-## 调研范围
+## 1. 调研目标
 
-围绕赛题的 4 个核心能力做选型：
+本项目最初面向赛题时，需要同时解决四类问题：
 
-1. 多格式文档抽取与批注读取
-2. 本地检索与问答
-3. Office/代码文档修复
-4. 安全执行与 Prompt 注入防护
+1. 多格式办公文档与代码文档抽取
+2. 文档内批注、TODO 和结构化线索提取
+3. 问答、修复、图表和受控执行
+4. Prompt Injection、越权读取和危险副作用防护
 
-## 选型结论
+在当前版本中，调研目标又增加了一层：
 
-### 文档抽取
+5. 系统整体必须收敛到 Karpathy 风格的 `LLM Wiki`
 
-- `docx/pptx/xlsx`：原生 OOXML 解析
-- `doc/ppt/xls`：LibreOffice 无头转换优先，Apache Tika 兜底
-- `xml/java/py/html/md/js`：纯文本解析 + 规则抽取 TODO/注释
+因此，开源方案的选择不再只是“找一套本地问答技术栈”，而是要回答：
 
-这样选的原因是：赛题不仅要“读到正文”，还要读到批注、责任人、截止日期等结构化信息。OOXML 原生解析在这方面最稳，老 Office 再用转换和文本抽取做回退链路。
+- 哪些组件适合做 deterministic 工具层
+- 哪些能力应该交给 `Claude Code` 作为 wiki maintainer
 
-### 检索与问答
+## 2. Karpathy 对 LLM Wiki 的定义
 
-- 默认采用 SQLite FTS5
-- 不默认引入 Elasticsearch / OpenSearch
+Karpathy 提出的 `LLM Wiki` 核心不是一次性检索问答，而是：
 
-原因是赛题规模在数百文件量级，本地单机、零服务依赖和可复制性比重型搜索集群更重要。
+- 维护一套持续演化的知识页
+- 把原始资料编译成可读、可增量整理、可引用的 markdown wiki
+- 让模型更多地扮演 maintainer，而不是一次性回答器
 
-### Excel 图表
+对本项目的直接影响是：
 
-- 采用 `pandas.pivot_table` + `matplotlib`
+- `raw/` 应是原始资料层
+- `wiki/` 应是最终知识层
+- `Claude Code` 应该主要负责 curation
+- 本地解析/索引/安全能力应作为辅助工具层，而不是主产品本体
 
-原因是它们能稳定生成本地 PNG 结果，并且和 Python 工作流天然兼容。
+## 3. 开源组件选型结论
 
-### 安全防护
+### 3.1 文档抽取
 
-- 采用规则和权限策略双层防护
-- 关键点：
-  - `Permission.json` 黑名单
-  - 危险命令拦截
-  - 敏感口令问题拦截
-  - Prompt 注入关键句拦截
-  - Python AST 安全检查
+当前采用：
 
-## 官方资料
+- `docx/pptx/xlsx`
+  - 优先直接解析 OOXML
+- `doc/ppt/xls`
+  - 优先 `LibreOffice` 转换，`Apache Tika` 兜底
+- `xml/java/py/html/md/js`
+  - 纯文本读取 + 规则提取
 
+选择原因：
+
+- 赛题不仅要求读正文，还要读批注和 TODO
+- OOXML 直读在 comments、结构定位和稳定性方面更合适
+- 旧 Office 格式可以接受转换链路兜底
+
+### 3.2 本地索引
+
+当前采用：
+
+- SQLite FTS5
+
+不默认采用：
+
+- Elasticsearch
+- OpenSearch
+- 向量数据库
+
+原因：
+
+- 当前规模更适合单机、轻依赖、可复现方案
+- deterministic 检索更适合作为 Claude ingest/query 的辅助层
+
+### 3.3 图表能力
+
+当前采用：
+
+- `pandas`
+- `matplotlib`
+
+原因：
+
+- 能稳定生成本地可交付 PNG
+- 与现有 Python 链路兼容
+
+### 3.4 安全加固
+
+当前采用：
+
+- `Permission.json` deny 规则
+- 规则化 prompt injection 拦截
+- 危险副作用拦截
+- 结果层 deny 过滤
+- Python AST 受控执行检查
+
+原因：
+
+- 赛题中存在明确的对抗样例
+- LLM Wiki 场景同样存在恶意 source 污染风险
+
+## 4. 为什么没有直接采用现成的“RAG 系统”
+
+很多开源方案更适合：
+
+- 文档切片
+- embedding 检索
+- LLM 最终回答
+
+但它们通常不天然解决以下问题：
+
+- Office comments/TODO 的细粒度抽取
+- 基于批注的 deterministic 修复
+- 受控本地执行
+- deny 路径和命令的结果级安全边界
+- `wiki/` 持续维护而不是一次性回答
+
+所以本项目最终选择的是：
+
+- 用开源组件搭底层能力
+- 用本地 deterministic 流程生成 seed
+- 用 `Claude Code` 驱动 wiki curation
+
+## 5. 当前项目中的落地方式
+
+当前架构已经把调研结论落实为两层：
+
+### 5.1 Wiki 主层
+
+- `raw/`
+- `wiki/sources/`
+- `wiki/topics/`
+- `cache/extracted/`
+- `CLAUDE.md`
+- `ingest / ingest-claude / query-wiki / lint-wiki`
+
+### 5.2 工具兼容层
+
+- `docs/question/output`
+- SQLite/FTS5
+- Office/代码抽取
+- TODO 解析
+- 文档修复
+- 图表生成
+- 受控 Python 执行
+
+## 6. 当前版本新增的调研落地点
+
+相较于早期版本，当前版本已经进一步补上：
+
+- `wiki/topics/` 自动 topic seed page
+- `topic-synthesis` 阶段的 merge rules
+- `ingest-claude` 三阶段 workflow
+- `wiki://curation-status` 和 `wiki://claude-playbook` 等更贴近 wiki curation 的 MCP 资源
+
+这使项目更贴近真正的 `LLM Wiki`，而不是“披着 wiki 名字的本地检索工具”。
+
+## 7. 参考资料
+
+- Karpathy LLM Wiki 说明
+  - https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
 - Unstructured supported file types
   - https://docs.unstructured.io/open-source/introduction/supported-file-types
 - Apache Tika supported formats
