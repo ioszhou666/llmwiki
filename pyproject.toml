@@ -8,10 +8,12 @@ dependencies = [
   "pandas",
   "matplotlib",
   "lxml",
+  "mcp",
 ]
 
 [project.scripts]
 llm-wiki = "llm_wiki.cli:main"
+llm-wiki-mcp = "llm_wiki.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=68"]

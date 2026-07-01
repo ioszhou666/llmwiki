@@ -138,15 +138,81 @@ llm-wiki --project-root D:\llmwiki\demo_workspace_release answer-all-claude
 llm-wiki --project-root D:\llmwiki\demo_workspace_release release --target D:\llmwiki\deliverables
 ```
 
-## 6. 代码内部调用链
+## 6. 作为 MCP Server 接入 Claude Code
 
-### 6.1 入口文件
+如果你希望把本项目直接嵌入到 Claude Code 的工具体系里，推荐使用 MCP 方式，而不是只让 Claude 调普通 CLI。
+
+### 6.1 启动方式
+
+本项目已经提供了标准 MCP server 入口：
+
+```powershell
+llm-wiki-mcp --project-root D:\llmwiki\demo_workspace_release
+```
+
+它默认使用 `stdio` 传输。
+
+### 6.2 在 Claude Code 中注册
+
+```powershell
+claude mcp add llmwiki -- python -m llm_wiki.mcp_server --project-root D:\llmwiki\demo_workspace_release
+```
+
+如果已经执行过 `python -m pip install -e .`，也可以直接：
+
+```powershell
+claude mcp add llmwiki -- llm-wiki-mcp --project-root D:\llmwiki\demo_workspace_release
+```
+
+### 6.3 检查是否注册成功
+
+```powershell
+claude mcp list
+claude mcp get llmwiki
+```
+
+### 6.4 当前 MCP 暴露内容
+
+当前 MCP Server 暴露了两类能力：
+
+1. `resources`
+   - `wiki://status`
+   - `wiki://permission-policy`
+2. `tools`
+   - `index_documents`
+   - `doctor`
+   - `list_document_paths`
+   - `list_question_groups`
+   - `count_files_by_extension`
+   - `count_supported_extensions`
+   - `search_related_paths`
+   - `find_paths_by_basename`
+   - `get_document_record`
+   - `list_comments`
+   - `answer_question_local`
+   - `answer_group_local`
+   - `apply_fixes`
+   - `build_pivot_chart`
+   - `run_python_document`
+
+### 6.5 为什么 MCP 更适合 Claude
+
+相比只保留 `ask-claude` 这种外层 CLI 包装，MCP 的优点是：
+
+- Claude Code 可以按需读取资源，不用每次都走整段 prompt
+- Claude Code 可以自行决定调用哪个工具
+- 更符合 Claude Code / Agent 的标准集成方式
+- 后续更容易继续扩展成多工具协作
+
+## 7. 代码内部调用链
+
+### 7.1 入口文件
 
 - `src/llm_wiki/cli.py`
 - `src/llm_wiki/answerer.py`
 - `src/llm_wiki/claude_client.py`
 
-### 6.2 实际调用过程
+### 7.2 实际调用过程
 
 项目里的 Claude 路径大致如下：
 
@@ -162,7 +228,7 @@ claude -p "<prompt>" --output-format json --tools ""
 5. Claude Code 返回 JSON 包装结果
 6. 项目再把 `result` 字段解析成最终答案对象
 
-### 6.3 为什么要 `--tools ""`
+### 7.3 为什么要 `--tools ""`
 
 当前实现里禁用了 Claude Code 默认工具集，原因是：
 
@@ -172,7 +238,7 @@ claude -p "<prompt>" --output-format json --tools ""
 
 后续如果需要增强成更强的 Agent 模式，可以再逐步开放工具。
 
-## 7. 当前与本地 deterministic 能力的关系
+## 8. 当前与本地 deterministic 能力的关系
 
 项目目前同时保留两套入口：
 
@@ -190,9 +256,9 @@ claude -p "<prompt>" --output-format json --tools ""
 - 本地入口：更稳定、可预测、方便回归测试
 - Claude 入口：更符合“依赖 Claude Code”的赛题要求，也更适合后续扩展语义能力
 
-## 8. 常见问题
+## 9. 常见问题
 
-### 8.1 `claude` 命令找不到
+### 9.1 `claude` 命令找不到
 
 原因：
 
@@ -203,7 +269,7 @@ claude -p "<prompt>" --output-format json --tools ""
 - 重开终端
 - 或使用绝对路径执行 `claude.exe`
 
-### 8.2 `claude-status` 显示未登录
+### 9.2 `claude-status` 显示未登录
 
 原因：
 
@@ -216,7 +282,7 @@ claude -p "<prompt>" --output-format json --tools ""
 - 检查中转 token 是否可用
 - 重新执行 `claude auth status`
 
-### 8.3 `ask-claude` 报编码错误
+### 9.3 `ask-claude` 报编码错误
 
 本项目已经在 `claude_client.py` 中强制使用：
 
@@ -225,7 +291,7 @@ claude -p "<prompt>" --output-format json --tools ""
 
 如果仍出问题，优先检查 Claude Code 输出是否被其他壳层工具二次处理。
 
-### 8.4 返回格式不稳定
+### 9.4 返回格式不稳定
 
 项目已经通过 prompt 限制 Claude Code：
 
@@ -235,7 +301,15 @@ claude -p "<prompt>" --output-format json --tools ""
 
 如果需要更强约束，可以继续增强 prompt 模板或增加结构化校验。
 
-## 9. 推荐使用顺序
+### 9.5 `claude mcp add` 后工具不可见
+
+优先检查：
+
+- `llm-wiki-mcp --project-root ...` 是否能单独启动
+- `claude mcp get llmwiki` 是否报错
+- 当前 Python 环境里是否已安装 `mcp` 依赖
+
+## 10. 推荐使用顺序
 
 对于比赛和验收，建议固定按这个顺序执行：
 
