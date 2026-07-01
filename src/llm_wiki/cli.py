@@ -39,6 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser("doctor", help="Inspect runtime and optional dependencies")
     doctor_parser.add_argument("--db", type=Path, default=None)
 
+    validate_parser = subparsers.add_parser("validate", help="Run an end-to-end project validation")
+    validate_parser.add_argument("--db", type=Path, default=None)
+
     bootstrap_parser = subparsers.add_parser("bootstrap-demo", help="Create a demo workspace")
     bootstrap_parser.add_argument("--target", type=Path, required=True)
     bootstrap_parser.add_argument("--keep-existing", action="store_true")
@@ -114,6 +117,28 @@ def main() -> None:
                     indent=2,
                 )
             )
+            return
+        if args.command == "validate":
+            index_count = index.index_documents(docs_root, project_root)
+            policy = PermissionPolicy.from_file(permission_path)
+            engine = AnswerEngine(index=index, policy=policy, project_root=project_root, output_root=output_root)
+            produced_answers = engine.answer_all_groups(question_root, output_root)
+            fixed_outputs = sorted(
+                str(path.relative_to(project_root)).replace("\\", "/")
+                for path in (output_root / "fixed").glob("*")
+                if path.is_file() and not path.name.endswith(".fix-report.md")
+            )
+            summary = {
+                "status": "ok",
+                "project_root": project_root.as_posix(),
+                "indexed_documents": index_count,
+                "question_groups": len(list(question_root.glob("group-*.md"))),
+                "answer_outputs": produced_answers,
+                "fixed_outputs": fixed_outputs,
+                "audit_log": (output_root / "audit.jsonl").as_posix(),
+                "sqlite_fts5": _has_fts5(),
+            }
+            print(json.dumps(summary, ensure_ascii=False, indent=2))
             return
     finally:
         index.close()

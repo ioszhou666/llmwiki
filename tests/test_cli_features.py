@@ -49,3 +49,20 @@ def test_cli_ask_doctor_and_bootstrap(tmp_path: Path) -> None:
     assert bootstrap.returncode == 0
     assert (bootstrap_target / "docs").exists()
     assert (bootstrap_target / "question" / "group-1.md").exists()
+
+
+def test_cli_validate_runs_end_to_end(tmp_path: Path) -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    workspace = tmp_path / "workspace"
+    build_sample_workspace(workspace)
+
+    validate = _run_cli("--project-root", str(workspace), "validate", workdir=project_root)
+    assert validate.returncode == 0
+    payload = json.loads(validate.stdout)
+    assert payload["status"] == "ok"
+    assert payload["indexed_documents"] == 7
+    assert payload["question_groups"] == 1
+    assert payload["answer_outputs"]
+    assert payload["fixed_outputs"] == ["output/fixed/产品V1需求.docx"]
+    assert (workspace / "output" / "group-1-answer.md").exists()
+    assert (workspace / "output" / "audit.jsonl").exists()
