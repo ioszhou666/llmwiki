@@ -1,0 +1,2 @@
+"""Local wiki workbench."""
+
