@@ -11,6 +11,12 @@ EXTENSION_PATTERN = "|".join(sorted(SUPPORTED_EXTENSIONS, key=len, reverse=True)
 FILE_PATTERN = rf"([^\s]+\.(?:{EXTENSION_PATTERN}))"
 DATE_PATTERN = r"(20\d{6})"
 SECRET_PATTERN = r"(?:密码|密钥|secret|token|apikey|api key|credential|口令|数据库明文密码)"
+TODO_PATTERN = r"(?:TODO|todo|批注)"
+FIX_PATTERN = r"(?:修复|优化整理|批注修复|TODO修复|todo修复)"
+FIX_HINTS = ("修复", "优化整理", "批注修复", "TODO修复", "todo修复")
+PATH_HINTS = ("路径", "位置")
+PIVOT_HINTS = ("透视图", "图表")
+RUN_HINTS = ("执行结果", "运行结果")
 
 
 @dataclass(slots=True)
@@ -60,39 +66,60 @@ def extract_filename(title: str) -> str | None:
     return raw
 
 
+def _extract_assignee(normalized_title: str) -> str | None:
+    patterns = (
+        rf"责任人为(.+?)的{TODO_PATTERN}",
+        rf"待(.+?)(?:处理的)?{TODO_PATTERN}",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized_title, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
 def parse_question(title: str, all_paths: list[str]) -> ParsedQuestion:
     normalized_title = normalize_question(title)
     basename, candidate_paths = resolve_candidate_paths(normalized_title, all_paths)
+    assignee = _extract_assignee(normalized_title)
 
-    if match := re.search(rf"统计全项目\s+({EXTENSION_PATTERN})\s+总数量", normalized_title, re.IGNORECASE):
+    if match := re.search(
+        rf"(?:统计(?:全项目|当前)?\s*)?({EXTENSION_PATTERN})\s*(?:文件)?(?:的)?(?:总)?数量",
+        normalized_title,
+        re.IGNORECASE,
+    ):
         return ParsedQuestion(title, normalized_title, "count_extension", extension=match.group(1).lower())
 
     if re.search(r"统计.*不同类型文件.*数量", normalized_title):
         return ParsedQuestion(title, normalized_title, "count_supported_extensions")
 
-    if match := re.search(rf"(?:找出|列出|获取).*(?:全部|所有)?\s*({EXTENSION_PATTERN})\s*文件(?:的)?路径", normalized_title, re.IGNORECASE):
+    if match := re.search(
+        rf"(?:找出|列出|获取).*(?:全部|所有)?\s*({EXTENSION_PATTERN})\s*文件(?:的)?路径",
+        normalized_title,
+        re.IGNORECASE,
+    ):
         return ParsedQuestion(title, normalized_title, "list_extension_paths", extension=match.group(1).lower())
 
     if basename and re.search(SECRET_PATTERN, normalized_title, re.IGNORECASE):
         return ParsedQuestion(title, normalized_title, "file_secret_lookup", basename=basename, candidate_paths=candidate_paths)
 
-    if basename and "路径" in normalized_title:
+    if basename and any(token in normalized_title for token in PATH_HINTS):
         return ParsedQuestion(title, normalized_title, "find_path", basename=basename, candidate_paths=candidate_paths)
 
-    if basename and "统计批注数量" in normalized_title:
+    if basename and re.search(rf"(?:统计)?{TODO_PATTERN}数量", normalized_title, re.IGNORECASE):
         return ParsedQuestion(title, normalized_title, "comment_count", basename=basename, candidate_paths=candidate_paths)
 
-    if basename and (match := re.search(r"(?:待|由)(.+?)处理的批注", normalized_title)):
+    if basename and assignee:
         return ParsedQuestion(
             title,
             normalized_title,
             "assignee_comments",
             basename=basename,
             candidate_paths=candidate_paths,
-            assignee=match.group(1).strip(),
+            assignee=assignee,
         )
 
-    if basename and (match := re.search(rf"(?:截止|到期|end_date[:： ]*){DATE_PATTERN}", normalized_title)):
+    if basename and (match := re.search(rf"(?:截止|到期|end_date[:]*)\s*{DATE_PATTERN}", normalized_title, re.IGNORECASE)):
         date_value = re.search(DATE_PATTERN, match.group(0))
         return ParsedQuestion(
             title,
@@ -103,13 +130,25 @@ def parse_question(title: str, all_paths: list[str]) -> ParsedQuestion:
             date_value=date_value.group(1) if date_value else None,
         )
 
-    if match := re.search(r"(?:统计)?(?:待|由)(.+?)处理的批注数量", normalized_title):
-        return ParsedQuestion(title, normalized_title, "global_assignee_comment_count", assignee=match.group(1).strip())
+    if basename and any(token in normalized_title for token in FIX_HINTS):
+        return ParsedQuestion(title, normalized_title, "fix_document", basename=basename, candidate_paths=candidate_paths)
 
-    if match := re.search(r"(?:待|由)(.+?)处理的批注", normalized_title):
-        return ParsedQuestion(title, normalized_title, "global_assignee_comments", assignee=match.group(1).strip())
+    if basename and any(token in normalized_title for token in PIVOT_HINTS):
+        return ParsedQuestion(title, normalized_title, "pivot_chart", basename=basename, candidate_paths=candidate_paths)
 
-    if match := re.search(rf"(?:统计)?.*(?:截止|到期|end_date[:： ]*){DATE_PATTERN}.*批注数量", normalized_title):
+    if basename and any(token in normalized_title for token in RUN_HINTS):
+        return ParsedQuestion(title, normalized_title, "run_document", basename=basename, candidate_paths=candidate_paths)
+
+    if assignee and any(token in normalized_title for token in ("数量", "数目", "总数")):
+        return ParsedQuestion(title, normalized_title, "global_assignee_comment_count", assignee=assignee)
+
+    if assignee and re.search(FIX_PATTERN, normalized_title, re.IGNORECASE):
+        return ParsedQuestion(title, normalized_title, "fix_by_assignee", assignee=assignee)
+
+    if assignee:
+        return ParsedQuestion(title, normalized_title, "global_assignee_comments", assignee=assignee)
+
+    if match := re.search(rf"(?:统计)?.*(?:截止|到期|end_date[:]*)\s*{DATE_PATTERN}.*(?:批注|TODO).*数量", normalized_title, re.IGNORECASE):
         date_value = re.search(DATE_PATTERN, match.group(0))
         return ParsedQuestion(
             title,
@@ -118,7 +157,7 @@ def parse_question(title: str, all_paths: list[str]) -> ParsedQuestion:
             date_value=date_value.group(1) if date_value else None,
         )
 
-    if match := re.search(rf"(?:截止|到期|end_date[:： ]*){DATE_PATTERN}", normalized_title):
+    if match := re.search(rf"(?:截止|到期|end_date[:]*)\s*{DATE_PATTERN}", normalized_title, re.IGNORECASE):
         date_value = re.search(DATE_PATTERN, match.group(0))
         return ParsedQuestion(
             title,
@@ -127,19 +166,10 @@ def parse_question(title: str, all_paths: list[str]) -> ParsedQuestion:
             date_value=date_value.group(1) if date_value else None,
         )
 
-    if basename and any(token in normalized_title for token in ("批注修复", "TODO修复", "todo修复", "自由批注优化整理", "优化整理", "修复")):
-        return ParsedQuestion(title, normalized_title, "fix_document", basename=basename, candidate_paths=candidate_paths)
-
-    if basename and any(token in normalized_title for token in ("透视图", "图表")):
-        return ParsedQuestion(title, normalized_title, "pivot_chart", basename=basename, candidate_paths=candidate_paths)
-
-    if basename and any(token in normalized_title for token in ("执行结果", "运行结果")):
-        return ParsedQuestion(title, normalized_title, "run_document", basename=basename, candidate_paths=candidate_paths)
-
-    if any(token in normalized_title for token in ("执行结果", "运行结果")):
+    if any(token in normalized_title for token in RUN_HINTS):
         return ParsedQuestion(title, normalized_title, "run_document_by_keyword", keyword=normalized_title)
 
-    if any(token in normalized_title for token in ("透视图", "图表")):
+    if any(token in normalized_title for token in PIVOT_HINTS):
         return ParsedQuestion(title, normalized_title, "pivot_chart_by_keyword", keyword=normalized_title)
 
     if match := re.search(r"涉及到(.+?)业务(?:的文件名称和路径)?", normalized_title):

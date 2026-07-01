@@ -72,6 +72,7 @@ llm-wiki --project-root D:\llmwiki\demo_workspace bootstrap-demo --target D:\llm
 - 系统设计见 `docs/SYSTEM_DESIGN.md`
 - Claude Code 调用说明见 `docs/CLAUDE_USAGE.md`
 - 当前系统逻辑详解见 `docs/LOGIC_DETAILS.md`
+- 安全加固说明见 `docs/SECURITY_HARDENING.md`
 
 ## MCP 接入
 

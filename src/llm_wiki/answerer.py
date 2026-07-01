@@ -61,7 +61,7 @@ class AnswerEngine:
 
     def answer_question(self, title: str) -> dict[str, object]:
         parsed = parse_question(title, self.index.list_document_paths())
-        risk = self.policy.detect_question_risk(parsed.normalized_title, parsed.candidate_paths)
+        risk = self.policy.detect_question_risk(parsed.normalized_title, parsed.candidate_paths, parsed.kind)
         if risk:
             self.audit.write("question_blocked", title=title, reason=risk["error_msg"])
             return risk
@@ -102,6 +102,8 @@ class AnswerEngine:
         elif parsed.kind == "fix_document":
             rel_path = self._pick_single_path(parsed.candidate_paths)
             answer = self.apply_fixes(rel_path) if rel_path else {"datas": []}
+        elif parsed.kind == "fix_by_assignee" and parsed.assignee:
+            answer = self.apply_fixes_by_assignee(parsed.assignee)
         elif parsed.kind == "pivot_chart":
             rel_path = self._pick_single_path(parsed.candidate_paths)
             answer = self.build_pivot_chart(rel_path) if rel_path else {"datas": []}
@@ -130,7 +132,7 @@ class AnswerEngine:
 
     def answer_question_with_claude(self, title: str, client: ClaudeCodeClient) -> dict[str, object]:
         parsed = parse_question(title, self.index.list_document_paths())
-        risk = self.policy.detect_question_risk(parsed.normalized_title, parsed.candidate_paths)
+        risk = self.policy.detect_question_risk(parsed.normalized_title, parsed.candidate_paths, parsed.kind)
         if risk:
             self.audit.write("question_blocked", title=title, reason=risk["error_msg"])
             return risk
@@ -213,6 +215,17 @@ class AnswerEngine:
         report_path.write_text(dump_json(report), encoding="utf-8")
         self.audit.write("document_fixed", source=rel_path, target=report["target"])
         return {"source": rel_path, "target": f"output/fixed/{source_path.name}"}
+
+    def apply_fixes_by_assignee(self, assignee: str) -> dict[str, object]:
+        rows = self.index.list_comments(assignee=assignee)
+        rel_paths: list[str] = []
+        for row in rows:
+            rel_path = row["rel_path"]
+            if rel_path not in rel_paths:
+                rel_paths.append(rel_path)
+        results = [self.apply_fixes(rel_path) for rel_path in rel_paths]
+        self.audit.write("document_fixed_by_assignee", assignee=assignee, count=len(results))
+        return {"datas": [item["target"] for item in results if item.get("target")]}
 
     def build_pivot_chart(self, rel_path: str) -> dict[str, object]:
         absolute_path = self.index.get_document_absolute_path(rel_path)
