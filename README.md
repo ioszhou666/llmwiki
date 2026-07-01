@@ -68,6 +68,7 @@ llm-wiki --project-root D:\llmwiki\demo_workspace bootstrap-demo --target D:\llm
 
 - 开源调研见 `docs/OPEN_SOURCE_RESEARCH.md`
 - 系统设计见 `docs/SYSTEM_DESIGN.md`
+- Claude Code 调用说明见 `docs/CLAUDE_USAGE.md`
 
 ## 典型题型
 
@@ -76,6 +77,19 @@ llm-wiki --project-root D:\llmwiki\demo_workspace bootstrap-demo --target D:\llm
 - `统计待张三处理的批注数量`
 - `截止20261231的批注`
 - `根据 gauss 相关脚本的执行结果给出输出`
+
+## Claude Code 快速使用
+
+推荐最少按下面 4 步执行：
+
+```powershell
+llm-wiki --project-root D:\llmwiki\demo_workspace_release doctor
+llm-wiki --project-root D:\llmwiki\demo_workspace_release claude-status
+llm-wiki --project-root D:\llmwiki\demo_workspace_release ask-claude --question "找出产品V1需求.docx 路径"
+llm-wiki --project-root D:\llmwiki\demo_workspace_release answer-all-claude
+```
+
+更完整的 Claude Code 使用说明、兼容中转配置和项目内部调用链见 `docs/CLAUDE_USAGE.md`。
 
 ## 当前边界
 
