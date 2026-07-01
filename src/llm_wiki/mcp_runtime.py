@@ -40,33 +40,43 @@ class WikiRuntime:
             "question_exists": self.question_root.exists(),
             "output_exists": self.output_root.exists(),
             "db_path": self.db_path.as_posix(),
-            "document_count": len(self.index.list_document_paths()),
+            "document_count": len(self._visible_document_paths()),
         }
 
     def list_document_paths(self) -> list[str]:
-        return self.index.list_document_paths()
+        return self._visible_document_paths()
 
     def list_question_groups(self) -> list[str]:
         return sorted(path.name for path in self.question_root.glob("group-*.md"))
 
     def count_files_by_extension(self, extension: str) -> dict[str, int]:
-        return {extension.lower(): self.index.count_files_by_extension(extension)}
+        suffix = f".{extension.lower()}"
+        total = sum(1 for rel_path in self._visible_document_paths() if Path(rel_path).suffix.lower() == suffix)
+        return {extension.lower(): total}
 
     def count_supported_extensions(self) -> dict[str, int]:
-        return self.index.count_supported_extensions()
+        counts: dict[str, int] = {}
+        for rel_path in self._visible_document_paths():
+            ext = Path(rel_path).suffix.lstrip(".").lower()
+            counts[ext] = counts.get(ext, 0) + 1
+        return {key: counts[key] for key in sorted(counts)}
 
     def search_related_paths(self, keyword: str, limit: int = 20) -> dict[str, list[str]]:
-        return {"datas": self.index.search_related_paths(keyword, limit=limit)}
+        paths = [path for path in self.index.search_related_paths(keyword, limit=limit) if not self.policy.is_path_denied(path)]
+        return {"datas": paths}
 
     def find_paths_by_basename(self, basename: str) -> dict[str, list[str]]:
-        return {"datas": self.index.find_paths_by_basename(basename)}
+        paths = [path for path in self.index.find_paths_by_basename(basename) if not self.policy.is_path_denied(path)]
+        return {"datas": paths}
 
     def get_document_record(self, rel_path: str) -> dict[str, object]:
+        if self.policy.is_path_denied(rel_path):
+            return {"error_msg": "高危命令，拒绝访问"}
         return {
             "path": rel_path,
             "extension": self.index.get_document_extension(rel_path),
             "content": self.index.get_document_content(rel_path) or "",
-            "comments": [dict(row) for row in self.index.list_comments(rel_path=rel_path)],
+            "comments": [dict(row) for row in self.index.list_comments(rel_path=rel_path) if not self.policy.is_path_denied(row["rel_path"])],
         }
 
     def list_comments(
@@ -75,7 +85,10 @@ class WikiRuntime:
         assignee: str | None = None,
         due_date: str | None = None,
     ) -> dict[str, list[dict[str, object]]]:
-        return {"datas": [dict(row) for row in self.index.list_comments(rel_path=rel_path, assignee=assignee, due_date=due_date)]}
+        if rel_path and self.policy.is_path_denied(rel_path):
+            return {"datas": []}
+        rows = self.index.list_comments(rel_path=rel_path, assignee=assignee, due_date=due_date)
+        return {"datas": [dict(row) for row in rows if not self.policy.is_path_denied(row["rel_path"])]}
 
     def answer_question_local(self, question: str) -> dict[str, object]:
         return self.engine.answer_question(question)
@@ -108,7 +121,19 @@ class WikiRuntime:
             "document_paths": self.list_document_paths(),
             "question_groups": self.list_question_groups(),
             "permission_policy": self.permission_policy_snapshot(),
+            "security_summary": self.security_summary(),
         }
 
     def resources_snapshot_json(self) -> str:
         return json.dumps(self.resources_snapshot(), ensure_ascii=False, indent=2)
+
+    def security_summary(self) -> dict[str, object]:
+        return {
+            "deny_dirs": self.policy.deny_dirs,
+            "deny_commands": self.policy.deny_commands,
+            "deny_files": self.policy.deny_files,
+            "enforced_on_runtime_tools": True,
+        }
+
+    def _visible_document_paths(self) -> list[str]:
+        return [path for path in self.index.list_document_paths() if not self.policy.is_path_denied(path)]

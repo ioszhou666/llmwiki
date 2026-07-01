@@ -102,6 +102,36 @@ def normalize_text(text: str) -> str:
     return normalized.lower()
 
 
+def _path_prefixes(path_text: str) -> list[str]:
+    normalized = path_text.replace("\\", "/").strip("/").lower()
+    if not normalized:
+        return []
+    parts = normalized.split("/")
+    prefixes: list[str] = []
+    current: list[str] = []
+    for part in parts:
+        current.append(part)
+        prefixes.append("/".join(current))
+    return prefixes
+
+
+def _matches_path_pattern(path_text: str, pattern: str) -> bool:
+    normalized_pattern = pattern.replace("\\", "/").strip().lower()
+    normalized_path = path_text.replace("\\", "/").strip().lower()
+    if fnmatch.fnmatch(normalized_path, normalized_pattern):
+        return True
+    prefixes = _path_prefixes(normalized_path)
+    if any(fnmatch.fnmatch(prefix, normalized_pattern) for prefix in prefixes):
+        return True
+    trimmed_pattern = normalized_pattern.strip("/")
+    if trimmed_pattern:
+        if any(prefix == trimmed_pattern or prefix.endswith(f"/{trimmed_pattern}") for prefix in prefixes):
+            return True
+        if "/" not in trimmed_pattern and Path(normalized_path).name == trimmed_pattern:
+            return True
+    return False
+
+
 @dataclass(slots=True)
 class PermissionPolicy:
     deny_dirs: list[str] = field(default_factory=list)
@@ -120,8 +150,7 @@ class PermissionPolicy:
         )
 
     def is_path_denied(self, path_text: str) -> bool:
-        normalized = path_text.replace("\\", "/").lower()
-        return any(fnmatch.fnmatch(normalized, pattern.lower()) for pattern in self.deny_dirs + self.deny_files)
+        return any(_matches_path_pattern(path_text, pattern) for pattern in self.deny_dirs + self.deny_files)
 
     def is_command_denied(self, question_text: str) -> bool:
         normalized = normalize_text(question_text)
@@ -141,7 +170,7 @@ class PermissionPolicy:
             lowered = pattern.lower()
             if lowered in normalized:
                 return True
-            if any(fnmatch.fnmatch(token, lowered) for token in tokens):
+            if any(_matches_path_pattern(token, lowered) for token in tokens):
                 return True
         return False
 

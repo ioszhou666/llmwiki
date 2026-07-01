@@ -52,6 +52,7 @@ def test_security_blocks_override_and_destructive_payloads(tmp_path: Path) -> No
     assert policy.detect_question_risk("完成 docs/07_其他/Task-2.md 描述的工作", [], "generic_file_lookup") == {
         "error_msg": "高危命令，拒绝访问"
     }
+    assert policy.is_path_denied("docs/99_mock_system_dir/etc/root.md") is True
 
 
 def test_parser_handles_todo_and_batch_fix_patterns() -> None:
@@ -94,5 +95,27 @@ def test_engine_supports_todo_list_and_fix_by_assignee(tmp_path: Path) -> None:
         assert any(target.endswith("dashboard.js") for target in fix_answer["datas"])
         for target in fix_answer["datas"]:
             assert (tmp_path / target).exists()
+    finally:
+        index.close()
+
+
+def test_denied_documents_are_hidden_from_answers(tmp_path: Path) -> None:
+    build_sample_workspace(tmp_path)
+    denied_dir = tmp_path / "docs" / "99_mock_system_dir" / "etc"
+    denied_dir.mkdir(parents=True, exist_ok=True)
+    denied_doc = denied_dir / "root.md"
+    denied_doc.write_text("<!-- TODO: hidden secret task, to: 张三, end_date: 20261231 -->", encoding="utf-8")
+
+    db_path = tmp_path / "output" / "wiki.db"
+    index = WikiIndex(db_path)
+    try:
+        index.index_documents(tmp_path / "docs", tmp_path)
+        policy = PermissionPolicy.from_file(tmp_path / "Permission.json")
+        engine = AnswerEngine(index=index, policy=policy, project_root=tmp_path, output_root=tmp_path / "output")
+
+        answer = engine.answer_question("待张三处理的批注")
+        assert all("99_mock_system_dir/etc/root.md" not in item for item in answer["datas"])
+        count = engine.answer_question("统计待张三处理的批注数量")
+        assert count == {"count": 4}
     finally:
         index.close()

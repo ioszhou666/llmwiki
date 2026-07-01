@@ -67,37 +67,38 @@ class AnswerEngine:
             return risk
 
         if parsed.kind == "count_extension" and parsed.extension:
-            answer = {parsed.extension: self.index.count_files_by_extension(parsed.extension)}
+            answer = {parsed.extension: self._count_visible_files_by_extension(parsed.extension)}
         elif parsed.kind == "count_supported_extensions":
-            answer = self.index.count_supported_extensions()
+            answer = self._count_visible_supported_extensions()
         elif parsed.kind == "list_extension_paths" and parsed.extension:
             answer = {"datas": self._list_paths_by_extension(parsed.extension)}
         elif parsed.kind == "find_path":
-            answer = {"datas": parsed.candidate_paths}
+            answer = {"datas": self._filter_allowed_paths(parsed.candidate_paths)}
         elif parsed.kind == "file_secret_lookup":
             answer = self.lookup_file_secret(parsed.candidate_paths)
         elif parsed.kind == "comment_count":
             rel_path = self._pick_single_path(parsed.candidate_paths)
-            answer = {"count": len(self.index.list_comments(rel_path=rel_path))} if rel_path else {"count": 0}
+            rows = self._filter_comment_rows(self.index.list_comments(rel_path=rel_path)) if rel_path else []
+            answer = {"count": len(rows)}
         elif parsed.kind == "assignee_comments":
             rel_path = self._pick_single_path(parsed.candidate_paths)
-            rows = self.index.list_comments(rel_path=rel_path, assignee=parsed.assignee) if rel_path else []
+            rows = self._filter_comment_rows(self.index.list_comments(rel_path=rel_path, assignee=parsed.assignee)) if rel_path else []
             answer = {"datas": [row["text"] for row in rows]}
         elif parsed.kind == "date_comments":
             rel_path = self._pick_single_path(parsed.candidate_paths)
-            rows = self.index.list_comments(rel_path=rel_path, due_date=parsed.date_value) if rel_path else []
+            rows = self._filter_comment_rows(self.index.list_comments(rel_path=rel_path, due_date=parsed.date_value)) if rel_path else []
             answer = {"datas": [row["text"] for row in rows]}
         elif parsed.kind == "global_assignee_comments":
-            rows = self.index.list_comments(assignee=parsed.assignee)
+            rows = self._filter_comment_rows(self.index.list_comments(assignee=parsed.assignee))
             answer = {"datas": [f"{row['rel_path']} | {row['text']}" for row in rows]}
         elif parsed.kind == "global_assignee_comment_count":
-            rows = self.index.list_comments(assignee=parsed.assignee)
+            rows = self._filter_comment_rows(self.index.list_comments(assignee=parsed.assignee))
             answer = {"count": len(rows)}
         elif parsed.kind == "global_date_comments":
-            rows = self.index.list_comments(due_date=parsed.date_value)
+            rows = self._filter_comment_rows(self.index.list_comments(due_date=parsed.date_value))
             answer = {"datas": [f"{row['rel_path']} | {row['text']}" for row in rows]}
         elif parsed.kind == "global_date_comment_count":
-            rows = self.index.list_comments(due_date=parsed.date_value)
+            rows = self._filter_comment_rows(self.index.list_comments(due_date=parsed.date_value))
             answer = {"count": len(rows)}
         elif parsed.kind == "fix_document":
             rel_path = self._pick_single_path(parsed.candidate_paths)
@@ -117,13 +118,13 @@ class AnswerEngine:
             rel_path = self._select_keyword_document(parsed.keyword, {".xlsx", ".xls"})
             answer = self.build_pivot_chart(rel_path) if rel_path else {"datas": []}
         elif parsed.kind == "business_search" and parsed.keyword:
-            answer = {"datas": self.index.search_related_paths(parsed.keyword)}
+            answer = {"datas": self._filter_allowed_paths(self.index.search_related_paths(parsed.keyword))}
         elif parsed.kind == "command_lookup" and parsed.keyword:
             answer = {"datas": self._search_command_knowledge(parsed.keyword)}
         elif parsed.kind == "generic_file_lookup":
-            answer = {"datas": parsed.candidate_paths}
+            answer = {"datas": self._filter_allowed_paths(parsed.candidate_paths)}
         elif parsed.keyword:
-            answer = {"datas": self.index.search_related_paths(parsed.keyword)}
+            answer = {"datas": self._filter_allowed_paths(self.index.search_related_paths(parsed.keyword))}
         else:
             answer = {"datas": []}
 
@@ -181,6 +182,9 @@ class AnswerEngine:
         return produced
 
     def apply_fixes(self, rel_path: str) -> dict[str, str]:
+        if self.policy.is_path_denied(rel_path):
+            self.audit.write("document_fix_blocked", source=rel_path)
+            return REJECT_MESSAGE
         absolute_path = self.index.get_document_absolute_path(rel_path)
         extension = self.index.get_document_extension(rel_path)
         if not absolute_path or not extension:
@@ -217,7 +221,7 @@ class AnswerEngine:
         return {"source": rel_path, "target": f"output/fixed/{source_path.name}"}
 
     def apply_fixes_by_assignee(self, assignee: str) -> dict[str, object]:
-        rows = self.index.list_comments(assignee=assignee)
+        rows = self._filter_comment_rows(self.index.list_comments(assignee=assignee))
         rel_paths: list[str] = []
         for row in rows:
             rel_path = row["rel_path"]
@@ -228,6 +232,9 @@ class AnswerEngine:
         return {"datas": [item["target"] for item in results if item.get("target")]}
 
     def build_pivot_chart(self, rel_path: str) -> dict[str, object]:
+        if self.policy.is_path_denied(rel_path):
+            self.audit.write("pivot_blocked", source=rel_path)
+            return REJECT_MESSAGE
         absolute_path = self.index.get_document_absolute_path(rel_path)
         if not absolute_path:
             return {"datas": []}
@@ -247,7 +254,11 @@ class AnswerEngine:
         return {"datas": [f"output/{output_path.name}"]}
 
     def lookup_file_secret(self, candidate_paths: list[str]) -> dict[str, object]:
-        allowed_paths = [path for path in candidate_paths if "02_环境信息" in path.replace("\\", "/")]
+        allowed_paths = [
+            path
+            for path in self._filter_allowed_paths(candidate_paths)
+            if "02_环境信息" in path.replace("\\", "/")
+        ]
         if not allowed_paths:
             return {"datas": []}
         values: list[str] = []
@@ -261,6 +272,9 @@ class AnswerEngine:
         return {"datas": deduped}
 
     def run_python_document(self, rel_path: str) -> dict[str, object]:
+        if self.policy.is_path_denied(rel_path):
+            self.audit.write("python_execution_blocked", source=rel_path, reason="permission_denied")
+            return REJECT_MESSAGE
         absolute_path = self.index.get_document_absolute_path(rel_path)
         if not absolute_path:
             return {"datas": []}
@@ -371,11 +385,12 @@ class AnswerEngine:
                 target_archive.writestr(name, payload)
 
     def _pick_single_path(self, paths: list[str]) -> str | None:
-        return paths[0] if paths else None
+        allowed = self._filter_allowed_paths(paths)
+        return allowed[0] if allowed else None
 
     def _list_paths_by_extension(self, extension: str) -> list[str]:
         suffix = f".{extension.lower()}"
-        return [rel_path for rel_path in self.index.list_document_paths() if Path(rel_path).suffix.lower() == suffix]
+        return [rel_path for rel_path in self._visible_document_paths() if Path(rel_path).suffix.lower() == suffix]
 
     def _build_claude_context(self, title: str, parsed: object) -> dict[str, object]:
         candidate_paths = list(getattr(parsed, "candidate_paths", []) or [])
@@ -395,11 +410,12 @@ class AnswerEngine:
         for path in candidate_paths + related_paths:
             if path and path not in merged_paths:
                 merged_paths.append(path)
+        merged_paths = self._filter_allowed_paths(merged_paths)
 
         snippets: list[dict[str, object]] = []
         for rel_path in merged_paths[:8]:
             content = self.index.get_document_content(rel_path) or ""
-            comments = [row["text"] for row in self.index.list_comments(rel_path=rel_path)]
+            comments = [row["text"] for row in self._filter_comment_rows(self.index.list_comments(rel_path=rel_path))]
             snippets.append(
                 {
                     "path": rel_path,
@@ -445,12 +461,20 @@ class AnswerEngine:
             seen.add(candidate)
             related_paths = self.index.search_related_paths(candidate)
             for rel_path in related_paths:
-                if Path(rel_path).suffix.lower() in suffixes:
+                if not self.policy.is_path_denied(rel_path) and Path(rel_path).suffix.lower() in suffixes:
                     return rel_path
-            parent_dirs = {str(Path(rel_path).parent).replace("\\", "/") for rel_path in related_paths}
+            parent_dirs = {
+                str(Path(rel_path).parent).replace("\\", "/")
+                for rel_path in related_paths
+                if not self.policy.is_path_denied(rel_path)
+            }
             for rel_path in self.index.list_document_paths():
                 rel_parent = str(Path(rel_path).parent).replace("\\", "/")
-                if rel_parent in parent_dirs and Path(rel_path).suffix.lower() in suffixes:
+                if (
+                    rel_parent in parent_dirs
+                    and not self.policy.is_path_denied(rel_path)
+                    and Path(rel_path).suffix.lower() in suffixes
+                ):
                     return rel_path
         return None
 
@@ -498,12 +522,34 @@ class AnswerEngine:
             if not candidate or candidate in seen:
                 continue
             seen.add(candidate)
-            for snippet in self.index.search_snippets(candidate):
-                if snippet not in results:
-                    results.append(snippet)
+            for row in self.index.search_snippet_rows(candidate):
+                if self.policy.is_path_denied(row["rel_path"]):
+                    continue
+                if row["snippet"] not in results:
+                    results.append(row["snippet"])
             if results:
                 break
         return results
+
+    def _visible_document_paths(self) -> list[str]:
+        return self._filter_allowed_paths(self.index.list_document_paths())
+
+    def _filter_allowed_paths(self, paths: list[str]) -> list[str]:
+        return [path for path in paths if path and not self.policy.is_path_denied(path)]
+
+    def _filter_comment_rows(self, rows: list[object]) -> list[object]:
+        return [row for row in rows if not self.policy.is_path_denied(row["rel_path"])]
+
+    def _count_visible_files_by_extension(self, extension: str) -> int:
+        suffix = f".{extension.lower()}"
+        return sum(1 for rel_path in self._visible_document_paths() if Path(rel_path).suffix.lower() == suffix)
+
+    def _count_visible_supported_extensions(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for rel_path in self._visible_document_paths():
+            ext = Path(rel_path).suffix.lstrip(".").lower()
+            counts[ext] = counts.get(ext, 0) + 1
+        return {key: counts[key] for key in sorted(counts)}
 
     def _extract_secret_values(self, path: Path) -> list[str]:
         suffix = path.suffix.lower()

@@ -28,6 +28,12 @@ def create_server(project_root: Path, db_path: Path | None = None):
 
         return json.dumps(runtime.permission_policy_snapshot(), ensure_ascii=False, indent=2)
 
+    @server.resource("wiki://security-summary", name="security-summary", mime_type="application/json")
+    def wiki_security_summary() -> str:
+        import json
+
+        return json.dumps(runtime.security_summary(), ensure_ascii=False, indent=2)
+
     @server.tool(name="index_documents", description="Index docs/ into the local SQLite and FTS store.")
     def index_documents() -> dict[str, object]:
         return runtime.index_documents()

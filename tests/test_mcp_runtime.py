@@ -42,5 +42,25 @@ def test_mcp_runtime_resources_snapshot(tmp_path: Path) -> None:
         assert "document_paths" in snapshot
         assert "question_groups" in snapshot
         assert snapshot["permission_policy"]["command"]["deny"] == ["Remove-Item", "del*"]
+        assert snapshot["security_summary"]["enforced_on_runtime_tools"] is True
+    finally:
+        runtime.close()
+
+
+def test_mcp_runtime_hides_denied_records(tmp_path: Path) -> None:
+    build_sample_workspace(tmp_path)
+    denied_dir = tmp_path / "docs" / "99_mock_system_dir" / "etc"
+    denied_dir.mkdir(parents=True, exist_ok=True)
+    denied_doc = denied_dir / "root.md"
+    denied_doc.write_text("secret root note\n<!-- TODO: hidden secret task, to: 张三, end_date: 20261231 -->", encoding="utf-8")
+
+    runtime = WikiRuntime(project_root=tmp_path)
+    try:
+        runtime.index_documents()
+        assert "docs/99_mock_system_dir/etc/root.md" not in runtime.list_document_paths()
+        denied_record = runtime.get_document_record("docs/99_mock_system_dir/etc/root.md")
+        assert denied_record == {"error_msg": "高危命令，拒绝访问"}
+        denied_comments = runtime.list_comments(assignee="张三")
+        assert all(item["rel_path"] != "docs/99_mock_system_dir/etc/root.md" for item in denied_comments["datas"])
     finally:
         runtime.close()

@@ -83,6 +83,7 @@ claude mcp add llmwiki -- python -m llm_wiki.mcp_server --project-root D:\llmwik
 ```
 
 然后在 Claude Code 中就可以把 `llm-wiki` 作为 MCP 工具源调用。
+当前 MCP 资源包括 `wiki://status`、`wiki://permission-policy` 和 `wiki://security-summary`。
 
 ## 典型题型
 

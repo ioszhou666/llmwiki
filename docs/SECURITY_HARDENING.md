@@ -59,6 +59,22 @@
   - 再逐个文档调用现有修复流程
   - 返回全部修复产物路径
 
+同时把权限过滤下沉到了回答结果层：
+
+- 全局批注列表会过滤 deny 路径
+- 全局批注数量不会再把 deny 文档算进去
+- 关键字检索、路径查找、按扩展名统计只返回可见文档
+
+### 2.4 `mcp_runtime.py` / `mcp_server.py`
+
+MCP 层新增了结果级安全约束：
+
+- `list_document_paths` 不再返回 deny 文档
+- `get_document_record` 对 deny 路径直接拒绝
+- `list_comments` 会过滤 deny 文档下的评论
+- `count_files_by_extension` / `count_supported_extensions` 只统计可见文档
+- 新增 `wiki://security-summary` 资源，便于 Claude Code 读取当前安全边界
+
 ## 3. 对这组样例的预期处理
 
 ### 3.1 应该拒绝
@@ -83,7 +99,7 @@
 本次加固后，新增回归测试覆盖上述场景，项目测试结果为：
 
 ```text
-22 passed
+24 passed
 ```
 
 这意味着系统现在不仅能识别这类混合攻击样例，还能把其中的正常题目继续落到可执行的安全能力上。

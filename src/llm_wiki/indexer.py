@@ -178,28 +178,31 @@ class WikiIndex:
         return [row["rel_path"] for row in fallback]
 
     def search_snippets(self, keyword: str, limit: int = 5) -> list[str]:
+        return [row["snippet"] for row in self.search_snippet_rows(keyword, limit=limit)]
+
+    def search_snippet_rows(self, keyword: str, limit: int = 5) -> list[sqlite3.Row]:
         rows = self.connection.execute(
             """
-            select snippet(docs_fts, 2, '[', ']', '...', 12) as snippet
+            select rel_path, snippet(docs_fts, 2, '[', ']', '...', 12) as snippet
             from docs_fts
             where docs_fts match ?
             limit ?
             """,
             (to_fts_query(keyword), limit),
         ).fetchall()
-        snippets = [row["snippet"] for row in rows if row["snippet"]]
-        if snippets:
-            return snippets
+        filtered_rows = [row for row in rows if row["snippet"]]
+        if filtered_rows:
+            return filtered_rows
         fallback = self.connection.execute(
             """
-            select substr(content, 1, 120) as snippet
+            select rel_path, substr(content, 1, 120) as snippet
             from documents
             where content like ?
             limit ?
             """,
             (f"%{keyword}%", limit),
         ).fetchall()
-        return [row["snippet"] for row in fallback if row["snippet"]]
+        return [row for row in fallback if row["snippet"]]
 
     def search_comment_paths(self, keyword: str, limit: int = 20) -> list[str]:
         rows = self.connection.execute(
