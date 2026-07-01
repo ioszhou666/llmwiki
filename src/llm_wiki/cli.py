@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .answerer import AnswerEngine
+from .claude_client import ClaudeCodeClient
 from .constants import SUPPORTED_EXTENSIONS
 from .demo_workspace import build_sample_workspace
 from .indexer import WikiIndex
@@ -38,8 +39,25 @@ def build_parser() -> argparse.ArgumentParser:
     ask_parser.add_argument("--question", required=True)
     ask_parser.add_argument("--reindex", action="store_true")
 
+    ask_claude_parser = subparsers.add_parser("ask-claude", help="Answer one free-form question via Claude Code")
+    ask_claude_parser.add_argument("--db", type=Path, default=None)
+    ask_claude_parser.add_argument("--question", required=True)
+    ask_claude_parser.add_argument("--reindex", action="store_true")
+
     doctor_parser = subparsers.add_parser("doctor", help="Inspect runtime and optional dependencies")
     doctor_parser.add_argument("--db", type=Path, default=None)
+
+    answer_claude_parser = subparsers.add_parser("answer-claude", help="Answer one question group via Claude Code")
+    answer_claude_parser.add_argument("--db", type=Path, default=None)
+    answer_claude_parser.add_argument("--group", required=True, help="Question file name such as group-1.md")
+    answer_claude_parser.add_argument("--reindex", action="store_true")
+
+    answer_all_claude_parser = subparsers.add_parser("answer-all-claude", help="Answer all question groups via Claude Code")
+    answer_all_claude_parser.add_argument("--db", type=Path, default=None)
+    answer_all_claude_parser.add_argument("--reindex", action="store_true")
+
+    claude_status_parser = subparsers.add_parser("claude-status", help="Inspect Claude Code relay/runtime status")
+    claude_status_parser.add_argument("--db", type=Path, default=None)
 
     validate_parser = subparsers.add_parser("validate", help="Run an end-to-end project validation")
     validate_parser.add_argument("--db", type=Path, default=None)
@@ -103,7 +121,16 @@ def main() -> None:
             engine = AnswerEngine(index=index, policy=policy, project_root=project_root, output_root=output_root)
             print(json.dumps(engine.answer_question(args.question), ensure_ascii=False, indent=2))
             return
+        if args.command == "ask-claude":
+            if args.reindex or not db_preexists:
+                index.index_documents(docs_root, project_root)
+            policy = PermissionPolicy.from_file(permission_path)
+            engine = AnswerEngine(index=index, policy=policy, project_root=project_root, output_root=output_root)
+            client = ClaudeCodeClient(workdir=project_root)
+            print(json.dumps(engine.answer_question_with_claude(args.question, client), ensure_ascii=False, indent=2))
+            return
         if args.command == "doctor":
+            claude_client = ClaudeCodeClient(workdir=project_root)
             print(
                 json.dumps(
                     {
@@ -118,11 +145,37 @@ def main() -> None:
                         "java": shutil.which("java"),
                         "tika_jar": _find_tika_jar(project_root),
                         "supported_extensions": sorted(SUPPORTED_EXTENSIONS),
+                        "claude_code": claude_client.auth_status(),
                     },
                     ensure_ascii=False,
                     indent=2,
                 )
             )
+            return
+        if args.command == "claude-status":
+            client = ClaudeCodeClient(workdir=project_root)
+            print(json.dumps(client.auth_status(), ensure_ascii=False, indent=2))
+            return
+        if args.command == "answer-claude":
+            if args.reindex or not db_preexists:
+                index.index_documents(docs_root, project_root)
+            policy = PermissionPolicy.from_file(permission_path)
+            engine = AnswerEngine(index=index, policy=policy, project_root=project_root, output_root=output_root)
+            client = ClaudeCodeClient(workdir=project_root)
+            question_path = question_root / args.group
+            answer_path = output_root / args.group.replace(".md", "-answer.md")
+            engine.answer_group_with_claude(question_path, answer_path, client)
+            print(answer_path.as_posix())
+            return
+        if args.command == "answer-all-claude":
+            if args.reindex or not db_preexists:
+                index.index_documents(docs_root, project_root)
+            policy = PermissionPolicy.from_file(permission_path)
+            engine = AnswerEngine(index=index, policy=policy, project_root=project_root, output_root=output_root)
+            client = ClaudeCodeClient(workdir=project_root)
+            produced = engine.answer_all_groups_with_claude(question_root, output_root, client)
+            for path in produced:
+                print(path)
             return
         if args.command == "validate":
             summary = _run_validation(index, project_root, docs_root, question_root, output_root, permission_path)

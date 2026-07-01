@@ -15,6 +15,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from .audit import AuditLogger
+from .claude_client import ClaudeCodeClient
 from .extractors import dump_json, extract_fix_actions, extract_replace_instruction
 from .indexer import WikiIndex
 from .question_parser import parse_question
@@ -126,6 +127,56 @@ class AnswerEngine:
 
         self.audit.write("question_answered", title=title, kind=parsed.kind)
         return answer
+
+    def answer_question_with_claude(self, title: str, client: ClaudeCodeClient) -> dict[str, object]:
+        parsed = parse_question(title, self.index.list_document_paths())
+        risk = self.policy.detect_question_risk(parsed.normalized_title, parsed.candidate_paths)
+        if risk:
+            self.audit.write("question_blocked", title=title, reason=risk["error_msg"])
+            return risk
+
+        context = self._build_claude_context(title, parsed)
+        prompt = self._build_claude_prompt(title, parsed.kind, context)
+        answer = client.ask_json(prompt)
+        self.audit.write("question_answered_claude", title=title, kind=parsed.kind)
+        return answer
+
+    def answer_group_with_claude(
+        self,
+        question_path: Path,
+        answer_path: Path,
+        client: ClaudeCodeClient,
+    ) -> list[dict[str, object]]:
+        payload = json.loads(question_path.read_text(encoding="utf-8"))
+        answers = []
+        for question in payload:
+            answer = self.answer_question_with_claude(question["title"], client)
+            answers.append(
+                {
+                    "id": question["id"],
+                    "title": question["title"],
+                    "level": question["level"],
+                    "answer": answer,
+                }
+            )
+        answer_path.parent.mkdir(parents=True, exist_ok=True)
+        answer_path.write_text(dump_json(answers), encoding="utf-8")
+        self.audit.write("answer_group_claude", question_path=question_path.as_posix(), answer_path=answer_path.as_posix())
+        return answers
+
+    def answer_all_groups_with_claude(
+        self,
+        question_root: Path,
+        output_root: Path,
+        client: ClaudeCodeClient,
+    ) -> list[str]:
+        produced: list[str] = []
+        for question_path in sorted(question_root.glob("group-*.md")):
+            answer_path = output_root / question_path.name.replace(".md", "-answer.md")
+            self.answer_group_with_claude(question_path, answer_path, client)
+            produced.append(answer_path.as_posix())
+        self.audit.write("answer_all_groups_claude", count=len(produced))
+        return produced
 
     def apply_fixes(self, rel_path: str) -> dict[str, str]:
         absolute_path = self.index.get_document_absolute_path(rel_path)
@@ -312,6 +363,64 @@ class AnswerEngine:
     def _list_paths_by_extension(self, extension: str) -> list[str]:
         suffix = f".{extension.lower()}"
         return [rel_path for rel_path in self.index.list_document_paths() if Path(rel_path).suffix.lower() == suffix]
+
+    def _build_claude_context(self, title: str, parsed: object) -> dict[str, object]:
+        candidate_paths = list(getattr(parsed, "candidate_paths", []) or [])
+        keyword = getattr(parsed, "keyword", None)
+        basename = getattr(parsed, "basename", None)
+        extension = getattr(parsed, "extension", None)
+
+        related_paths: list[str] = []
+        if keyword:
+            related_paths.extend(self.index.search_related_paths(keyword))
+        if basename and not related_paths:
+            related_paths.extend(candidate_paths)
+        if extension and not related_paths:
+            related_paths.extend(self._list_paths_by_extension(extension))
+
+        merged_paths: list[str] = []
+        for path in candidate_paths + related_paths:
+            if path and path not in merged_paths:
+                merged_paths.append(path)
+
+        snippets: list[dict[str, object]] = []
+        for rel_path in merged_paths[:8]:
+            content = self.index.get_document_content(rel_path) or ""
+            comments = [row["text"] for row in self.index.list_comments(rel_path=rel_path)]
+            snippets.append(
+                {
+                    "path": rel_path,
+                    "content_preview": content[:500],
+                    "comments": comments[:5],
+                }
+            )
+
+        return {
+            "question": title,
+            "kind": getattr(parsed, "kind", "unknown"),
+            "candidate_paths": candidate_paths,
+            "related_paths": merged_paths,
+            "snippets": snippets,
+        }
+
+    def _build_claude_prompt(self, title: str, kind: str, context: dict[str, object]) -> str:
+        context_text = json.dumps(context, ensure_ascii=False, indent=2)
+        return (
+            "你是一个基于 Claude Code 的本地 Wiki 助手。\n"
+            "请只根据给定上下文回答，不要编造上下文中没有的信息。\n"
+            "你必须只输出一个 JSON 对象，不要输出 Markdown，不要输出解释。\n"
+            "如果问题涉及高危命令、敏感口令、越权访问，请输出 "
+            '{"error_msg":"高危命令，拒绝访问"}。\n'
+            "优先使用以下答案格式之一：\n"
+            '1. {"datas":["..."]}\n'
+            '2. {"count": 3}\n'
+            '3. {"docx": 1}\n'
+            '4. {"source":"...","target":"..."}\n'
+            f"问题类型：{kind}\n"
+            f"用户问题：{title}\n"
+            "上下文如下：\n"
+            f"{context_text}\n"
+        )
 
     def _select_keyword_document(self, keyword: str, suffixes: set[str]) -> str | None:
         candidates = [keyword]

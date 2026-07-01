@@ -43,6 +43,7 @@ def test_cli_ask_doctor_and_bootstrap(tmp_path: Path) -> None:
     payload = json.loads(doctor.stdout)
     assert payload["sqlite_fts5"] is True
     assert "docx" in payload["supported_extensions"]
+    assert "claude_code" in payload
 
     bootstrap_target = tmp_path / "bootstrapped"
     bootstrap = _run_cli("--project-root", str(workspace), "bootstrap-demo", "--target", str(bootstrap_target), workdir=project_root)
