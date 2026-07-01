@@ -34,6 +34,7 @@ llm-wiki --project-root D:\llmwiki\demo_workspace answer-all
 llm-wiki --project-root D:\llmwiki\demo_workspace ask --question "待张三处理的批注"
 llm-wiki --project-root D:\llmwiki\demo_workspace doctor
 llm-wiki --project-root D:\llmwiki\demo_workspace validate
+llm-wiki --project-root D:\llmwiki\demo_workspace release --target D:\llmwiki\deliverables
 llm-wiki --project-root D:\llmwiki\demo_workspace bootstrap-demo --target D:\llmwiki\demo_workspace
 ```
 
@@ -45,12 +46,18 @@ llm-wiki --project-root D:\llmwiki\demo_workspace bootstrap-demo --target D:\llm
 - `ask`：直接回答一条自然语言问题
 - `doctor`：检查运行时、可选依赖和索引能力
 - `validate`：执行索引、批量答题、修复产物与审计日志的端到端验收
+- `release`：生成包含调研文档、系统设计、验证报告和示例输出的交付包
 - `bootstrap-demo`：快速生成一套演示工作区
 
 ## 持续集成
 
 - 仓库内置 GitHub Actions，会在推送后自动执行 `pytest`
 - 本地建议在提交前运行 `python -m pytest tests -q`
+
+## 文档
+
+- 开源调研见 `docs/OPEN_SOURCE_RESEARCH.md`
+- 系统设计见 `docs/SYSTEM_DESIGN.md`
 
 ## 当前边界
 

@@ -6,11 +6,13 @@ import platform
 import shutil
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from .answerer import AnswerEngine
 from .constants import SUPPORTED_EXTENSIONS
 from .demo_workspace import build_sample_workspace
 from .indexer import WikiIndex
+from .reporting import build_release_bundle
 from .security import PermissionPolicy
 
 
@@ -41,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser("validate", help="Run an end-to-end project validation")
     validate_parser.add_argument("--db", type=Path, default=None)
+
+    release_parser = subparsers.add_parser("release", help="Build a release bundle with reports and demo outputs")
+    release_parser.add_argument("--db", type=Path, default=None)
+    release_parser.add_argument("--target", type=Path, required=True)
 
     bootstrap_parser = subparsers.add_parser("bootstrap-demo", help="Create a demo workspace")
     bootstrap_parser.add_argument("--target", type=Path, required=True)
@@ -119,25 +125,13 @@ def main() -> None:
             )
             return
         if args.command == "validate":
-            index_count = index.index_documents(docs_root, project_root)
-            policy = PermissionPolicy.from_file(permission_path)
-            engine = AnswerEngine(index=index, policy=policy, project_root=project_root, output_root=output_root)
-            produced_answers = engine.answer_all_groups(question_root, output_root)
-            fixed_outputs = sorted(
-                str(path.relative_to(project_root)).replace("\\", "/")
-                for path in (output_root / "fixed").glob("*")
-                if path.is_file() and not path.name.endswith(".fix-report.md")
-            )
-            summary = {
-                "status": "ok",
-                "project_root": project_root.as_posix(),
-                "indexed_documents": index_count,
-                "question_groups": len(list(question_root.glob("group-*.md"))),
-                "answer_outputs": produced_answers,
-                "fixed_outputs": fixed_outputs,
-                "audit_log": (output_root / "audit.jsonl").as_posix(),
-                "sqlite_fts5": _has_fts5(),
-            }
+            summary = _run_validation(index, project_root, docs_root, question_root, output_root, permission_path)
+            print(json.dumps(summary, ensure_ascii=False, indent=2))
+            return
+        if args.command == "release":
+            summary = _run_validation(index, project_root, docs_root, question_root, output_root, permission_path)
+            target_dir = build_release_bundle(project_root, summary, args.target.resolve())
+            summary = {**summary, "release_dir": target_dir.as_posix()}
             print(json.dumps(summary, ensure_ascii=False, indent=2))
             return
     finally:
@@ -164,6 +158,46 @@ def _find_tika_jar(project_root: Path) -> str | None:
         if candidate.exists():
             return candidate.as_posix()
     return None
+
+
+def _run_validation(
+    index: WikiIndex,
+    project_root: Path,
+    docs_root: Path,
+    question_root: Path,
+    output_root: Path,
+    permission_path: Path,
+) -> dict[str, Any]:
+    index_count = index.index_documents(docs_root, project_root)
+    policy = PermissionPolicy.from_file(permission_path)
+    engine = AnswerEngine(index=index, policy=policy, project_root=project_root, output_root=output_root)
+    produced_answers = [
+        _relativize_path(project_root, path)
+        for path in engine.answer_all_groups(question_root, output_root)
+    ]
+    fixed_outputs = sorted(
+        _relativize_path(project_root, path)
+        for path in (output_root / "fixed").glob("*")
+        if path.is_file() and not path.name.endswith(".fix-report.md")
+    )
+    return {
+        "status": "ok",
+        "project_root": project_root.as_posix(),
+        "indexed_documents": index_count,
+        "question_groups": len(list(question_root.glob("group-*.md"))),
+        "answer_outputs": produced_answers,
+        "fixed_outputs": fixed_outputs,
+        "audit_log": _relativize_path(project_root, output_root / "audit.jsonl"),
+        "sqlite_fts5": _has_fts5(),
+    }
+
+
+def _relativize_path(project_root: Path, path: str | Path) -> str:
+    candidate = Path(path)
+    try:
+        return candidate.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return candidate.as_posix()
 
 
 if __name__ == "__main__":

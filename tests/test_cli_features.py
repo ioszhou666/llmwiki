@@ -62,7 +62,33 @@ def test_cli_validate_runs_end_to_end(tmp_path: Path) -> None:
     assert payload["status"] == "ok"
     assert payload["indexed_documents"] == 7
     assert payload["question_groups"] == 1
-    assert payload["answer_outputs"]
+    assert payload["answer_outputs"] == ["output/group-1-answer.md"]
     assert payload["fixed_outputs"] == ["output/fixed/产品V1需求.docx"]
     assert (workspace / "output" / "group-1-answer.md").exists()
     assert (workspace / "output" / "audit.jsonl").exists()
+
+
+def test_cli_release_builds_deliverables(tmp_path: Path) -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    workspace = tmp_path / "workspace"
+    target = tmp_path / "release_bundle"
+    build_sample_workspace(workspace)
+
+    release = _run_cli(
+        "--project-root",
+        str(workspace),
+        "release",
+        "--target",
+        str(target),
+        workdir=project_root,
+    )
+    assert release.returncode == 0
+    payload = json.loads(release.stdout)
+    assert payload["status"] == "ok"
+    assert payload["release_dir"] == target.as_posix()
+    assert (target / "OPEN_SOURCE_RESEARCH.md").exists()
+    assert (target / "SYSTEM_DESIGN.md").exists()
+    assert (target / "VALIDATION_REPORT.md").exists()
+    assert (target / "demo_output" / "group-1-answer.md").exists()
+    assert (target / "demo_output" / "audit.jsonl").exists()
+    assert (target / "fixed" / "产品V1需求.docx").exists()
