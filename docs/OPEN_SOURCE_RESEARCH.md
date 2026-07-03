@@ -1,156 +1,103 @@
 # llm-wiki 开源方案调研
 
-## 1. 调研目标
+## 1. 调研结论
 
-本项目最初面向赛题时，需要同时解决四类问题：
+本项目不能按“本地检索问答器”方向实现。正确方向应当是：
 
-1. 多格式办公文档与代码文档抽取
-2. 文档内批注、TODO 和结构化线索提取
-3. 问答、修复、图表和受控执行
-4. Prompt Injection、越权读取和危险副作用防护
+- 以 Karpathy 的 `LLM Wiki` 理念为主
+- 参考 GitHub 上更接近 Claude-native wiki 的实现方式
+- 再把赛题里的 Office、TODO、批注修复和安全要求吸收进来
 
-在当前版本中，调研目标又增加了一层：
+因此，系统主线应是：
 
-5. 系统整体必须收敛到 Karpathy 风格的 `LLM Wiki`
+- `raw/` 作为证据层
+- `wiki/` 作为长期维护的知识层
+- `Claude Code` 作为主要维护者
+- 本地 Python 作为 deterministic 辅助层
 
-因此，开源方案的选择不再只是“找一套本地问答技术栈”，而是要回答：
+## 2. Karpathy 定义带来的约束
 
-- 哪些组件适合做 deterministic 工具层
-- 哪些能力应该交给 `Claude Code` 作为 wiki maintainer
+Karpathy 风格强调的不是“一次性检索回答”，而是：
 
-## 2. Karpathy 对 LLM Wiki 的定义
+1. 把资料整理成 page
+2. 让模型持续维护这些 page
+3. 让知识随着资料增长不断演化
 
-Karpathy 提出的 `LLM Wiki` 核心不是一次性检索问答，而是：
+所以真正重要的不是单次 RAG，而是：
 
-- 维护一套持续演化的知识页
-- 把原始资料编译成可读、可增量整理、可引用的 markdown wiki
-- 让模型更多地扮演 maintainer，而不是一次性回答器
+- summary page
+- concept page
+- entity page
+- synthesis page
+- overview / map / graph
 
-对本项目的直接影响是：
+## 3. 参考 GitHub 实现的共同特征
 
-- `raw/` 应是原始资料层
-- `wiki/` 应是最终知识层
-- `Claude Code` 应该主要负责 curation
-- 本地解析/索引/安全能力应作为辅助工具层，而不是主产品本体
+结合对公开实现方案的调研，比较稳定的共同点是：
 
-## 3. 开源组件选型结论
+1. 目录以 page 类型分层
+2. 模型直接维护 repo 内 markdown
+3. 有仓库级规则文件，例如 `AGENTS.md` / `CLAUDE.md`
+4. 有面向 Claude Code 的命令入口
+5. 原始资料和整理后的 page 明确分层
 
-### 3.1 文档抽取
+所以当前版本已经把主结构调整为：
 
-当前采用：
+- `wiki/summaries/`
+- `wiki/concepts/`
+- `wiki/entities/`
+- `wiki/syntheses/`
+- `wiki/overview/`
+- `wiki/graph/`
 
-- `docx/pptx/xlsx`
-  - 优先直接解析 OOXML
-- `doc/ppt/xls`
-  - 优先 `LibreOffice` 转换，`Apache Tika` 兜底
-- `xml/java/py/html/md/js`
-  - 纯文本读取 + 规则提取
+而不是旧的：
 
-选择原因：
-
-- 赛题不仅要求读正文，还要读批注和 TODO
-- OOXML 直读在 comments、结构定位和稳定性方面更合适
-- 旧 Office 格式可以接受转换链路兜底
-
-### 3.2 本地索引
-
-当前采用：
-
-- SQLite FTS5
-
-不默认采用：
-
-- Elasticsearch
-- OpenSearch
-- 向量数据库
-
-原因：
-
-- 当前规模更适合单机、轻依赖、可复现方案
-- deterministic 检索更适合作为 Claude ingest/query 的辅助层
-
-### 3.3 图表能力
-
-当前采用：
-
-- `pandas`
-- `matplotlib`
-
-原因：
-
-- 能稳定生成本地可交付 PNG
-- 与现有 Python 链路兼容
-
-### 3.4 安全加固
-
-当前采用：
-
-- `Permission.json` deny 规则
-- 规则化 prompt injection 拦截
-- 危险副作用拦截
-- 结果层 deny 过滤
-- Python AST 受控执行检查
-
-原因：
-
-- 赛题中存在明确的对抗样例
-- LLM Wiki 场景同样存在恶意 source 污染风险
-
-## 4. 为什么没有直接采用现成的“RAG 系统”
-
-很多开源方案更适合：
-
-- 文档切片
-- embedding 检索
-- LLM 最终回答
-
-但它们通常不天然解决以下问题：
-
-- Office comments/TODO 的细粒度抽取
-- 基于批注的 deterministic 修复
-- 受控本地执行
-- deny 路径和命令的结果级安全边界
-- `wiki/` 持续维护而不是一次性回答
-
-所以本项目最终选择的是：
-
-- 用开源组件搭底层能力
-- 用本地 deterministic 流程生成 seed
-- 用 `Claude Code` 驱动 wiki curation
-
-## 5. 当前项目中的落地方式
-
-当前架构已经把调研结论落实为两层：
-
-### 5.1 Wiki 主层
-
-- `raw/`
 - `wiki/sources/`
 - `wiki/topics/`
-- `cache/extracted/`
-- `CLAUDE.md`
-- `ingest / ingest-claude / query-wiki / lint-wiki`
 
-### 5.2 工具兼容层
+## 4. 本项目中的本地代码应做什么
 
-- `docs/question/output`
-- SQLite/FTS5
-- Office/代码抽取
-- TODO 解析
-- 文档修复
-- 图表生成
-- 受控 Python 执行
+本地代码不应主导最终知识表达，而应负责：
 
-## 6. 当前版本新增的调研落地点
+- 文档抽取
+- 批注与 TODO 提取
+- deterministic packet 生成
+- 安全边界
+- Claude workflow scaffolding
 
-相较于早期版本，当前版本已经进一步补上：
+因此，当前保留的技术选型仍然成立：
 
-- `wiki/topics/` 自动 topic seed page
-- `topic-synthesis` 阶段的 merge rules
-- `ingest-claude` 三阶段 workflow
-- `wiki://curation-status` 和 `wiki://claude-playbook` 等更贴近 wiki curation 的 MCP 资源
+- OOXML 直读
+- LibreOffice / Tika 兜底
+- SQLite FTS5
+- pandas / matplotlib
+- Permission deny + 规则防护
 
-这使项目更贴近真正的 `LLM Wiki`，而不是“披着 wiki 名字的本地检索工具”。
+但这些都是辅助层，不是产品定义本身。
+
+## 5. 与赛题的结合方式
+
+赛题里的内容应被吸收到 wiki 主流程中：
+
+- Office 文档
+  - 作为 `raw/` 证据来源
+- 批注 / TODO
+  - 进入 extracted packet 和 summary page
+- 修复任务
+  - 仍保留 deterministic 工具链，但不再定义系统主线
+- 安全对抗样例
+  - 进入安全边界设计
+
+## 6. 当前版本的落地结果
+
+当前版本已经落地：
+
+- Claude-native wiki 目录
+- `AGENTS.md` + `CLAUDE.md`
+- `.claude/commands`
+- `summary / concept / entity` seed 生成
+- staged workflow
+- MCP 接入
 
 ## 7. 参考资料
 

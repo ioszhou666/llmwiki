@@ -1,32 +1,39 @@
 # Claude Code 调用说明
 
-本文档说明当前版本的 `llm-wiki` 如何在 `Claude Code` 中使用。
-
 ## 1. 当前定位
 
-当前版本已经纠偏为 Karpathy 风格的 `LLM Wiki`：
+当前版本里，`Claude Code` 的角色不是“调用项目后端问答”，而是直接作为这个 wiki 的 maintainer。
+
+也就是说，最重要的不是：
+
+- `ask-claude`
+- `answer-claude`
+
+而是：
+
+- `ingest`
+- `ingest-claude`
+- `print-ingest-workflow`
+- `query-wiki`
+- `query-wiki-claude`
+
+## 2. Claude 维护的对象
+
+当前 Claude 主要维护以下目录：
+
+- `wiki/summaries/`
+- `wiki/concepts/`
+- `wiki/entities/`
+- `wiki/syntheses/`
+- `wiki/overview/`
+- `wiki/index.md`
+- `wiki/log.md`
+
+它不应修改：
 
 - `raw/`
-  - 原始资料
-- `wiki/`
-  - Claude 维护的知识库
-- `CLAUDE.md`
-  - wiki maintainer 的行为规则
 
-所以 Claude Code 在本项目里的角色不再只是“问答后端”，而是：
-
-- ingest 时维护 wiki 页面
-- query 时基于 wiki 回答
-- lint 时帮助保持 wiki 结构一致
-
-## 2. 两种调用方式
-
-有两种推荐方式：
-
-1. 直接在 Claude Code 中打开项目目录并对话
-2. 通过 `llm-wiki` CLI 或 MCP 先生成标准 prompt / 标准上下文，再让 Claude 执行
-
-## 3. 最推荐的 Claude Code 手动使用流程
+## 3. 当前推荐流程
 
 ### 3.1 初始化项目
 
@@ -34,13 +41,13 @@
 llm-wiki --project-root D:\llmwiki\demo init-wiki
 ```
 
-或者直接创建一套演示项目：
+或者：
 
 ```powershell
 llm-wiki --project-root D:\llmwiki\demo bootstrap-demo --target D:\llmwiki\demo
 ```
 
-### 3.2 先做本地 seed ingest
+### 3.2 先生成 deterministic seed
 
 ```powershell
 llm-wiki --project-root D:\llmwiki\demo ingest
@@ -49,192 +56,136 @@ llm-wiki --project-root D:\llmwiki\demo ingest
 这一步会生成：
 
 - `cache/extracted/*.md`
-- `wiki/sources/*.md`
-- `wiki/topics/*.md`
+- `wiki/summaries/*.md`
+- `wiki/concepts/*.md`
+- `wiki/entities/*.md`
+- `wiki/overview/*.md`
 - `wiki/index.md`
 - `wiki/log.md`
 
-本地结果不是最终 wiki，只是给 Claude 一个确定性起点。
-其中 `wiki/topics/*.md` 是自动生成的 seed topic page，方便 Claude 在后续 topic-synthesis 阶段直接做合并和深化。
+这些内容不是最终成品，而是 Claude 的 curation 起点。
 
-### 3.3 在 Claude Code 中打开项目目录
+### 3.3 在 Claude Code 中打开项目
 
-打开 `D:\llmwiki\demo` 这个目录后，建议 Claude 先读取：
+建议 Claude 先读取：
 
+- `AGENTS.md`
 - `CLAUDE.md`
 - `wiki/index.md`
 - `wiki/log.md`
 - `cache/extracted/`
 - `raw/`
 
-然后可以直接给 Claude 下这类任务：
+## 4. 当前 staged ingest workflow
 
-```text
-请按 CLAUDE.md 维护这个 llm-wiki：
-1. 先阅读 CLAUDE.md、wiki/index.md、wiki/log.md
-2. 阅读 raw/ 和 cache/extracted/ 中的资料
-3. 更新 wiki/sources/*.md
-4. 基于 `wiki/topics/*.md` seed 做 topic/concept 页面合并与深化，尽量避免重复页面
-5. 更新 wiki/index.md
-6. 在 wiki/log.md 追加本次整理记录
-7. 不要修改 raw/
-```
-
-## 4. 用项目直接生成标准 Claude Prompt
-
-为了避免每次手工组织提示词，项目已经提供了标准导出命令。
-
-### 4.1 输出 Claude 调用手册
-
-```powershell
-llm-wiki --project-root D:\llmwiki\demo claude-playbook
-```
-
-它会输出当前项目推荐的 Claude Code 工作流说明。
-
-### 4.2 输出标准 ingest prompt
-
-```powershell
-llm-wiki --project-root D:\llmwiki\demo print-ingest-prompt
-```
-
-如果只想让 Claude 处理某一个 source：
-
-```powershell
-llm-wiki --project-root D:\llmwiki\demo print-ingest-prompt --source product_v1_requirements.md
-```
-
-### 4.3 输出三阶段 ingest workflow
+### 4.1 输出 workflow
 
 ```powershell
 llm-wiki --project-root D:\llmwiki\demo print-ingest-workflow
 ```
 
-它会输出 3 个按顺序执行的 prompt：
+当前会输出三个阶段：
 
 1. `source-curation`
-2. `topic-synthesis`
+2. `concept-and-entity-synthesis`
 3. `index-and-log-finalize`
 
-如果你在 Claude Code 里手工操作，这个入口比单个大 prompt 更稳定。
-其中 `topic-synthesis` 阶段已经内置两类关键约束：
+### 4.2 各阶段职责
 
-- 先从已有 `wiki/topics/` seed page 出发，不优先新建重名或近义页
-- 遇到同一系统、流程、决策边界的重复 topic 时，按 merge rules 合并
+`source-curation`
 
-### 4.4 输出标准 query prompt
+- 只维护 `wiki/summaries/*.md`
+- 使 summary 更准确、更紧贴 source evidence
 
-```powershell
-llm-wiki --project-root D:\llmwiki\demo print-query-prompt --question "当前 wiki 对 CRM migration 的结论是什么"
-```
+`concept-and-entity-synthesis`
 
-这个命令会先从 `wiki/` 本地检索相关页面，再拼成 Claude 可直接使用的标准 prompt。
+- 从现有 `wiki/concepts/` 和 `wiki/entities/` seed 起步
+- 合并重复页
+- 提炼跨 source 概念、系统、工具、团队、决策、流程
 
-## 5. 直接由 CLI 调 Claude
+`index-and-log-finalize`
 
-如果你不想手工把 prompt 贴进 Claude Code，也可以直接用项目调用：
+- 更新 `wiki/index.md`
+- 更新 `wiki/overview/*.md`
+- 追加 `wiki/log.md`
 
-### 5.1 Claude ingest
+## 5. 最推荐的 Claude 使用方式
+
+### 5.1 手工在 Claude Code 中执行
+
+顺序如下：
+
+1. `ingest`
+2. `print-ingest-workflow`
+3. 在 Claude Code 中按三个阶段顺序执行
+4. `lint-wiki`
+5. `query-wiki` 或 `query-wiki-claude`
+
+### 5.2 直接由 CLI 调 Claude
 
 ```powershell
 llm-wiki --project-root D:\llmwiki\demo ingest-claude
 ```
 
-当前 `ingest-claude` 内部会顺序执行三阶段 workflow，而不是只发一个大 prompt。
+当前 `ingest-claude` 的行为是：
 
-### 5.2 Claude query
+- 先执行本地 `ingest`
+- 再顺序执行三阶段 workflow
 
-```powershell
-llm-wiki --project-root D:\llmwiki\demo query-wiki-claude --question "当前 wiki 对 CRM migration 的结论是什么"
-```
+不是旧版那种单 prompt 方式。
 
-这里的区别是：
+## 6. 通过 MCP 接入 Claude Code
 
-- `ingest-claude`
-  - Claude 负责真正维护 wiki 页面
-- `query-wiki-claude`
-  - Claude 基于 wiki 检索片段作答
-
-## 6. 在 Claude Code 中作为 MCP 调用
-
-### 6.1 注册 MCP
+### 6.1 注册
 
 ```powershell
 claude mcp add llmwiki -- python -m llm_wiki.mcp_server --project-root D:\llmwiki\demo
 ```
 
-或者：
-
-```powershell
-claude mcp add llmwiki -- llm-wiki-mcp --project-root D:\llmwiki\demo
-```
-
-### 6.2 当前推荐使用的 MCP 资源
+### 6.2 建议先读的资源
 
 - `wiki://curation-status`
 - `wiki://claude-playbook`
 - `wiki://permission-policy`
 - `wiki://security-summary`
 
-### 6.3 当前推荐使用的 MCP 工具
+### 6.3 建议先调用的工具
 
 - `ingest_wiki_local`
-- `query_wiki_local`
-- `lint_wiki`
-- `get_ingest_prompt`
 - `get_ingest_workflow`
+- `lint_wiki`
+- `query_wiki_local`
 - `get_query_prompt`
 
-这意味着在 Claude Code 里可以走一条更标准的 agent 路线：
+## 7. `.claude/commands` 的位置
 
-1. 先读 `wiki://curation-status`
-2. 再读 `wiki://claude-playbook`
-3. 调 `ingest_wiki_local`
-4. 调 `get_ingest_workflow`
-5. 按三阶段 workflow 维护 wiki
+当前项目已经生成：
 
-## 7. 当前最推荐的实际调用顺序
+- `.claude/commands/ingest-wiki.md`
+- `.claude/commands/query-wiki.md`
+- `.claude/commands/lint-wiki.md`
 
-如果你是手工在 Claude Code 中操作，推荐按这个顺序：
+这意味着项目不是把 Claude 当外部聊天模型，而是按 Claude Code 原生仓库工作方式组织入口。
 
-1. `bootstrap-demo` 或 `init-wiki`
-2. `ingest`
-3. `claude-playbook`
-4. `print-ingest-workflow`
-5. 在 Claude Code 中按三阶段顺序执行 wiki 维护
-6. `lint-wiki`
-7. `print-query-prompt`
-8. 在 Claude Code 中执行基于 wiki 的问答
+## 8. 与旧命令的关系
 
-## 8. 常见问题
+以下命令仍然存在：
 
-### 8.1 Claude 为什么不直接读 raw，而还要先 ingest？
+- `ask-claude`
+- `answer-claude`
+- `answer-all-claude`
 
-因为 `LLM Wiki` 的重点不是单次检索，而是把 raw source 编译成持久 wiki。
+但它们只属于兼容层，不代表当前主方向。
 
-### 8.2 `ingest` 和 `ingest-claude` 有什么区别？
+当前主方向是：
 
-- `ingest`
-  - 本地 deterministic seed，会生成 source page、topic seed page 和 extracted packet
-- `ingest-claude`
-  - Claude 真正维护 wiki，并按 staged workflow 执行 source-curation、topic-synthesis、index-and-log-finalize
+- 先维护 wiki
+- 再基于 wiki 回答
 
-### 8.3 MCP 和 CLI 哪个更推荐？
-
-- 想快速验证：CLI 更直接
-- 想和 Claude Code 深度集成：MCP 更标准
+而不是“直接拿模型答题”。
 
 ## 9. 当前结论
 
-目前最稳妥的 Claude Code 调用方式已经不是旧的 `ask-claude` / `answer-claude`，而是：
+如果按当前版本正确使用 Claude Code，应理解为：
 
-- `ingest`
-- `ingest-claude`
-- `query-wiki`
-- `query-wiki-claude`
-- `claude-playbook`
-- `print-ingest-prompt`
-- `print-ingest-workflow`
-- `print-query-prompt`
-
-这样更符合 `LLM Wiki` 的真实工作方式，也更接近 Claude Code 作为 wiki maintainer 的定位。
+> Claude Code 是这个项目里的 wiki maintainer，而不是简单的问答后端。

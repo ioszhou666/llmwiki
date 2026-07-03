@@ -1,109 +1,151 @@
-# llm-wiki 方向纠偏说明
+# Karpathy 对齐说明
 
-## 1. 为什么要纠偏
+## 1. 当前修正点
 
-这一轮调整的核心原因是：`llm-wiki` 原本被做得更像“本地文档检索 + 规则问答 + 安全执行平台”，而不是 Karpathy 定义下的 `LLM Wiki`。
+你指出的问题是对的。之前的版本虽然开始使用 `raw/wiki` 叙事，但本质上仍然太像：
 
-Karpathy 的原始定义强调：
+- 本地 Python 工具主导
+- wiki 只是一个被包装出来的结果层
+- `sources/topics` 结构过于简化
 
-- `raw sources`
-- `wiki`
-- `schema`
-- `ingest`
-- `query`
-- `lint`
+这和 Karpathy 定义下的 `LLM Wiki` 还有明显偏差。
 
-因此系统主产物应该是“持续维护的 markdown wiki”，而不是“单次问答 JSON 输出”。
+## 2. Karpathy 风格的关键点
 
-## 2. 纠偏前的问题
+对齐 Karpathy，不是只要有：
 
-纠偏前，项目的重心主要放在：
+- `raw/`
+- `wiki/`
 
-- SQLite / FTS 检索
-- Office 批注抽取
-- TODO 修复
-- 单题 / 批量答题
-- Claude 包装问答
-- MCP 工具暴露
+就算完成。
 
-这些能力并不是无效，而是层级放错了。它们适合作为：
+真正关键的是：
 
-- ingest 辅助工具
-- query 辅助工具
-- 安全边界控制层
+1. 模型应主要维护 wiki page
+2. wiki page 应是长期积累的工作对象
+3. 原始资料应被“编译”成 wiki，而不是直接被模型拿来即时问答
+4. 目录形态应支持 summary、entity、concept、synthesis 等更稳定的知识组织
 
-而不应该作为系统主循环。
+## 3. 当前仓库之前的偏差
 
-## 3. 纠偏后的主循环
+主要有四个：
 
-现在项目的主循环改为：
+### 3.1 主系统重心错误
 
-1. `init-wiki`
-   - 建立 `raw/wiki/cache/CLAUDE.md/index.md/log.md`
-2. `ingest`
-   - 本地做确定性抽取，生成 source packet、source page seed 和 topic seed page
-3. `ingest-claude`
-   - Claude Code 真正维护 wiki 页面
-4. `query-wiki`
-   - 从 wiki 页面本地搜索回答
-5. `query-wiki-claude`
-   - Claude Code 基于 wiki 片段回答
-6. `lint-wiki`
-   - 检查 source coverage、index、log 和页面一致性
+旧版本虽然引入了 `ingest/query/lint`，但代码和文档重心仍偏向：
 
-## 4. 当前分层
+- `docs/question/output`
+- `ask/answer`
+- 本地 deterministic 问答器
 
-### 4.1 主系统层
+这会让 wiki 看起来像“兼容层附属功能”，而不是系统主线。
 
-- `src/llm_wiki/wiki_workspace.py`
-- `CLAUDE.md`
-- `wiki/index.md`
-- `wiki/log.md`
+### 3.2 目录组织过于扁平
 
-### 4.2 Claude 主控层
+旧的：
 
-- `ingest-claude`
-- `query-wiki-claude`
-- `src/llm_wiki/claude_client.py`
+- `wiki/sources/`
+- `wiki/topics/`
 
-### 4.3 工具辅助层
+虽然比纯问答器更进一步，但仍不够接近主流 Claude-native wiki 实践。
 
-- `extractors.py`
-- `indexer.py`
-- `answerer.py`
-- `security.py`
-- `mcp_runtime.py`
-- `mcp_server.py`
+### 3.3 缺少 Claude 原生命令入口
 
-这意味着：
+如果项目真的以 Claude Code 为主控，就不应只提供：
 
-- Claude Code 现在是 wiki maintainer
-- 本地能力是 Claude 的辅助工具链
+- Python CLI
+- MCP
 
-## 5. 保留旧能力的原因
+还应有：
 
-旧命令和旧能力没有被删除，原因有两个：
+- `AGENTS.md`
+- `.claude/commands/*`
 
-1. 它们对赛题中的 Office / TODO / 安全场景仍然有价值
-2. 它们可以继续作为 ingest/query 的辅助能力存在
+### 3.4 赛题能力没有被正确吸收
 
-所以现在项目采取的是：
+赛题里的：
 
-- 主方向纠偏
-- 工具层保留
-- 叙事重新归位
+- Office 文档
+- 批注/TODO
+- 安全对抗
 
-## 6. 当前仍需继续完善的点
+不应独立构成主产品，而应被纳入 wiki ingest 的证据抽取与安全边界。
 
-虽然方向已经纠正，但还有几部分可以继续增强：
+## 4. 当前已做的修正
 
-1. 已经补成三阶段 workflow，但还可以继续丰富 topic page、人物页、系统页模板
-2. `lint-wiki` 目前偏结构一致性检查，还可以继续加链接完整性和引用完整性检查
-3. topic seed page 已自动生成，但后续还可以继续增强 seed 质量和聚类策略
-4. MCP 仍以本地工具为主，后续可以增加更贴近 wiki curation 的高层工具
+当前版本已经改成：
 
-## 7. 当前结论
+### 4.1 目录结构
 
-这次改动后，项目已经不再把自己定义成“本地规则问答器”，而是：
+从：
 
-> 一个以 Claude Code 为主控、以 raw/wiki/schema 为核心结构、以 ingest/query/lint 为主循环的 LLM Wiki 工作台。
+- `wiki/sources/`
+- `wiki/topics/`
+
+改为：
+
+- `wiki/summaries/`
+- `wiki/concepts/`
+- `wiki/entities/`
+- `wiki/syntheses/`
+- `wiki/overview/`
+- `wiki/graph/`
+
+### 4.2 Claude-native 入口
+
+新增：
+
+- `AGENTS.md`
+- `.claude/commands/ingest-wiki.md`
+- `.claude/commands/query-wiki.md`
+- `.claude/commands/lint-wiki.md`
+
+### 4.3 staged workflow
+
+当前 ingest 三阶段调整为：
+
+1. `source-curation`
+2. `concept-and-entity-synthesis`
+3. `index-and-log-finalize`
+
+### 4.4 seed 形态
+
+当前 deterministic ingest 不再只生成：
+
+- source page seed
+- topic page seed
+
+而是生成：
+
+- summary seed
+- concept seed
+- entity seed
+- overview seed
+
+## 5. 当前仍未完全到位的部分
+
+严格说，现在只是把方向修正到了正确轨道，还没全部做完。
+
+还存在这些后续工作：
+
+1. `wiki/syntheses/` 还未深用
+2. `wiki/graph/` 还只是预留结构
+3. concept/entity seed 仍是启发式，不是更强的知识聚类
+4. 旧兼容层代码仍偏重，需要继续降权和收口
+
+## 6. 当前结论
+
+目前这次修正后的版本，已经比之前更接近 Karpathy 和 GitHub 上更成熟的 Claude-native wiki 方案，因为它满足了：
+
+- Claude 是 maintainer
+- page 是主工作对象
+- raw 是证据层
+- deterministic 代码是辅助层
+- 赛题能力被吸收到 ingest/query/security 中
+
+但要完全贴近更成熟实现，下一步仍应继续强化：
+
+- synthesis 层
+- graph 层
+- entity / concept 的更准分类
+- 更少的旧问答器叙事

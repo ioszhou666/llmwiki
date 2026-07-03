@@ -51,15 +51,15 @@ def test_cli_ask_doctor_and_bootstrap(tmp_path: Path) -> None:
     assert (bootstrap_target / "raw").exists()
     assert (bootstrap_target / "wiki" / "index.md").exists()
     assert (bootstrap_target / "CLAUDE.md").exists()
-    assert (bootstrap_target / "docs").exists()
-    assert (bootstrap_target / "question" / "group-1.md").exists()
+    assert (bootstrap_target / "AGENTS.md").exists()
+    assert (bootstrap_target / ".claude" / "commands" / "ingest-wiki.md").exists()
 
     workflow = _run_cli("--project-root", str(bootstrap_target), "print-ingest-workflow", workdir=project_root)
     assert workflow.returncode == 0
     workflow_payload = json.loads(workflow.stdout)
     assert [item["stage"] for item in workflow_payload] == [
         "source-curation",
-        "topic-synthesis",
+        "concept-and-entity-synthesis",
         "index-and-log-finalize",
     ]
 

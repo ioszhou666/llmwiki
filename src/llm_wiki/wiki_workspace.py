@@ -10,7 +10,21 @@ from pathlib import Path
 from .extractors import discover_documents, dump_json, extract_document
 
 
-REQUIRED_DIRS = ("raw", "wiki", "wiki/sources", "wiki/topics", "cache", "cache/extracted", "output")
+REQUIRED_DIRS = (
+    "raw",
+    "wiki",
+    "wiki/overview",
+    "wiki/summaries",
+    "wiki/entities",
+    "wiki/concepts",
+    "wiki/syntheses",
+    "wiki/graph",
+    "cache",
+    "cache/extracted",
+    "output",
+    ".claude",
+    ".claude/commands",
+)
 
 
 @dataclass(slots=True)
@@ -45,15 +59,21 @@ class WikiWorkspace:
         self.project_root = project_root.resolve()
         self.raw_root = self.project_root / "raw"
         self.wiki_root = self.project_root / "wiki"
-        self.sources_root = self.wiki_root / "sources"
-        self.topics_root = self.wiki_root / "topics"
+        self.overview_root = self.wiki_root / "overview"
+        self.summaries_root = self.wiki_root / "summaries"
+        self.entities_root = self.wiki_root / "entities"
+        self.concepts_root = self.wiki_root / "concepts"
+        self.syntheses_root = self.wiki_root / "syntheses"
+        self.graph_root = self.wiki_root / "graph"
         self.cache_root = self.project_root / "cache"
         self.extracted_root = self.cache_root / "extracted"
         self.output_root = self.project_root / "output"
         self.claude_md = self.project_root / "CLAUDE.md"
+        self.agents_md = self.project_root / "AGENTS.md"
         self.index_md = self.wiki_root / "index.md"
         self.log_md = self.wiki_root / "log.md"
         self.permission_path = self.project_root / "Permission.json"
+        self.claude_commands_root = self.project_root / ".claude" / "commands"
 
     def initialize(self) -> dict[str, object]:
         for rel_dir in REQUIRED_DIRS:
@@ -73,10 +93,13 @@ class WikiWorkspace:
             )
         if not self.claude_md.exists():
             self.claude_md.write_text(self._default_claude_md(), encoding="utf-8")
+        if not self.agents_md.exists():
+            self.agents_md.write_text(self._default_agents_md(), encoding="utf-8")
         if not self.index_md.exists():
             self.index_md.write_text(self._default_index_md(), encoding="utf-8")
         if not self.log_md.exists():
             self.log_md.write_text("# Wiki Log\n\n", encoding="utf-8")
+        self._ensure_claude_commands()
         return self.status()
 
     def status(self) -> dict[str, object]:
@@ -85,11 +108,15 @@ class WikiWorkspace:
             "raw_exists": self.raw_root.exists(),
             "wiki_exists": self.wiki_root.exists(),
             "claude_md_exists": self.claude_md.exists(),
+            "agents_md_exists": self.agents_md.exists(),
             "index_md_exists": self.index_md.exists(),
             "log_md_exists": self.log_md.exists(),
             "raw_sources": len(self.list_raw_sources()),
             "wiki_pages": len(list(self.wiki_root.rglob("*.md"))),
-            "topic_pages": len(list(self.topics_root.glob("*.md"))),
+            "summary_pages": len(list(self.summaries_root.glob("*.md"))),
+            "concept_pages": len(list(self.concepts_root.glob("*.md"))),
+            "entity_pages": len(list(self.entities_root.glob("*.md"))),
+            "topic_pages": len(list(self.concepts_root.glob("*.md"))),
         }
 
     def list_raw_sources(self) -> list[Path]:
@@ -106,25 +133,31 @@ class WikiWorkspace:
         packets = [self._build_source_packet(path) for path in sources]
         for packet in packets:
             self._write_extracted_packet(packet)
-            self._write_source_page(packet)
+            self._write_summary_page(packet)
         topic_seeds = self._build_topic_seeds(packets)
         for topic_seed in topic_seeds:
-            self._write_topic_seed_page(topic_seed)
-        self._refresh_index(packets)
+            self._write_concept_seed_page(topic_seed)
+            self._write_entity_seed_page(topic_seed)
+        self._refresh_overview_pages(packets, topic_seeds)
+        self._refresh_index()
         self._append_log(
             "ingest-local",
             {
                 "count": len(packets),
                 "sources": [packet.rel_path for packet in packets],
-                "topic_seeds": [seed.slug for seed in topic_seeds],
+                "concept_seeds": [seed.slug for seed in topic_seeds],
+                "entity_seeds": [seed.slug for seed in topic_seeds],
             },
         )
         return {
             "mode": "local-deterministic-seed",
             "raw_sources": len(sources),
             "ingested": len(packets),
+            "summary_pages": [packet.wiki_page for packet in packets],
+            "concept_pages": [f"wiki/concepts/{seed.slug}.md" for seed in topic_seeds],
+            "entity_pages": [f"wiki/entities/{seed.slug}.md" for seed in topic_seeds],
             "source_pages": [packet.wiki_page for packet in packets],
-            "topic_pages": [f"wiki/topics/{seed.slug}.md" for seed in topic_seeds],
+            "topic_pages": [f"wiki/concepts/{seed.slug}.md" for seed in topic_seeds],
             "index_page": self.index_md.relative_to(self.project_root).as_posix(),
             "log_page": self.log_md.relative_to(self.project_root).as_posix(),
         }
@@ -155,15 +188,15 @@ class WikiWorkspace:
         self.initialize()
         issues: list[str] = []
         raw_sources = self.list_raw_sources()
-        source_pages = {page.relative_to(self.project_root).as_posix() for page in self.sources_root.glob("*.md")}
+        summary_pages = {page.relative_to(self.project_root).as_posix() for page in self.summaries_root.glob("*.md")}
         extracted_pages = {page.relative_to(self.project_root).as_posix() for page in self.extracted_root.glob("*.md")}
         index_text = self.index_md.read_text(encoding="utf-8", errors="ignore") if self.index_md.exists() else ""
         for source in raw_sources:
             slug = self._source_slug(source.relative_to(self.project_root).as_posix())
-            wiki_page = f"wiki/sources/{slug}.md"
+            wiki_page = f"wiki/summaries/{slug}.md"
             extracted_page = f"cache/extracted/{slug}.md"
-            if wiki_page not in source_pages:
-                issues.append(f"missing source page: {wiki_page}")
+            if wiki_page not in summary_pages:
+                issues.append(f"missing summary page: {wiki_page}")
             if extracted_page not in extracted_pages:
                 issues.append(f"missing extracted packet: {extracted_page}")
             if wiki_page not in index_text:
@@ -174,7 +207,7 @@ class WikiWorkspace:
             "status": status,
             "issues": issues,
             "raw_sources": len(raw_sources),
-            "source_pages": len(source_pages),
+            "summary_pages": len(summary_pages),
             "extracted_packets": len(extracted_pages),
         }
 
@@ -188,12 +221,13 @@ class WikiWorkspace:
             source_path = (self.raw_root / source).resolve()
             selected = [path for path in selected if path.resolve() == source_path]
         raw_paths = [path.relative_to(self.project_root).as_posix() for path in selected]
-        source_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.sources_root.glob("*.md"))
-        topic_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.topics_root.glob("*.md"))
+        summary_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.summaries_root.glob("*.md"))
+        concept_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.concepts_root.glob("*.md"))
+        entity_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.entities_root.glob("*.md"))
         shared_header = (
             "You are maintaining a Karpathy-style LLM Wiki.\n"
             "Operate on the local repository files directly.\n"
-            "Follow CLAUDE.md exactly.\n"
+            "Follow AGENTS.md and CLAUDE.md exactly.\n"
             "Never modify raw/ sources.\n"
         )
         return [
@@ -202,32 +236,30 @@ class WikiWorkspace:
                 prompt=(
                     shared_header
                     + "Stage: source-curation\n"
-                    + "1. Read CLAUDE.md, wiki/index.md, and wiki/log.md.\n"
+                    + "1. Read AGENTS.md, CLAUDE.md, wiki/index.md, and wiki/log.md.\n"
                     + "2. Review the raw sources listed below and the deterministic packets in cache/extracted/.\n"
-                    + "3. Update only wiki/sources/*.md pages so each source page has a clean canonical summary, key points, and source-grounded notes.\n"
-                    + "4. Do not create topic pages yet.\n"
+                    + "3. Update only wiki/summaries/*.md pages so each summary page has a clean canonical summary, key points, and source-grounded notes.\n"
+                    + "4. Do not create synthesis pages yet.\n"
                     + f"Raw sources in scope:\n{json.dumps(raw_paths, ensure_ascii=False, indent=2)}\n"
-                    + "Return a short plain-text summary of the source pages you changed."
+                    + "Return a short plain-text summary of the summary pages you changed."
                 ),
             ),
             WorkflowPrompt(
-                stage="topic-synthesis",
+                stage="concept-and-entity-synthesis",
                 prompt=(
                     shared_header
-                    + "Stage: topic-synthesis\n"
-                    + "1. Read wiki/sources/*.md and identify themes that deserve shared topic or concept pages.\n"
-                    + "2. Start from existing seed pages under wiki/topics/ and strengthen them instead of creating duplicates when possible.\n"
-                    + "3. Create or update pages under wiki/topics/ when multiple sources converge on one operational topic, concept, project, or decision.\n"
-                    + "4. Prefer a small number of durable topic pages over many thin pages.\n"
-                    + "5. Merge overlapping topic pages when they describe the same idea, workflow, system, or decision boundary.\n"
-                    + "6. Use these merge rules:\n"
-                    + "   - merge if two pages share the same core entity or process name\n"
-                    + "   - merge if one page is only a narrower wording variant of another\n"
-                    + "   - do not merge if one page is a source-specific factual summary and the other is a cross-source synthesis\n"
-                    + "7. Add backlinks or references from source pages when useful, but keep the main work in wiki/topics/.\n"
-                    + f"Existing source pages:\n{json.dumps(source_pages, ensure_ascii=False, indent=2)}\n"
-                    + f"Existing topic pages:\n{json.dumps(topic_pages, ensure_ascii=False, indent=2)}\n"
-                    + "Return a short plain-text summary of topic pages you created or updated."
+                    + "Stage: concept-and-entity-synthesis\n"
+                    + "1. Read wiki/summaries/*.md and identify concepts, entities, systems, decisions, workflows, and open syntheses worth curating.\n"
+                    + "2. Start from existing seed pages under wiki/concepts/ and wiki/entities/ and strengthen them instead of creating duplicates when possible.\n"
+                    + "3. Create or update wiki/concepts/*.md for reusable abstractions, workflows, projects, policies, systems, and decisions.\n"
+                    + "4. Create or update wiki/entities/*.md for named systems, teams, products, services, environments, tools, and owners.\n"
+                    + "5. Prefer durable pages that accumulate knowledge over thin one-off pages.\n"
+                    + "6. Merge overlapping pages when they describe the same core entity or concept.\n"
+                    + "7. Keep source-local facts in wiki/summaries/, and use wiki/concepts/ plus wiki/entities/ for cross-source synthesis.\n"
+                    + f"Existing summary pages:\n{json.dumps(summary_pages, ensure_ascii=False, indent=2)}\n"
+                    + f"Existing concept pages:\n{json.dumps(concept_pages, ensure_ascii=False, indent=2)}\n"
+                    + f"Existing entity pages:\n{json.dumps(entity_pages, ensure_ascii=False, indent=2)}\n"
+                    + "Return a short plain-text summary of pages you created or updated."
                 ),
             ),
             WorkflowPrompt(
@@ -235,9 +267,9 @@ class WikiWorkspace:
                 prompt=(
                     shared_header
                     + "Stage: index-and-log-finalize\n"
-                    + "1. Refresh wiki/index.md so it links to all important source and topic pages.\n"
+                    + "1. Refresh wiki/index.md and wiki/overview/*.md so they link to all important summary, concept, entity, and synthesis pages.\n"
                     + "2. Append a factual entry to wiki/log.md describing what changed in this ingest session.\n"
-                    + "3. Do a brief consistency sweep for broken structure or duplicate pages.\n"
+                    + "3. Do a brief consistency sweep for broken structure, duplicate pages, and missing backlinks.\n"
                     + "4. Keep edits concise and operationally useful.\n"
                     + "Return a short plain-text summary of the final index/log updates."
                 ),
@@ -249,7 +281,7 @@ class WikiWorkspace:
         context = json.dumps(result["datas"], ensure_ascii=False, indent=2)
         return (
             "You are answering from a Karpathy-style LLM Wiki.\n"
-            "Use wiki/index.md, wiki/log.md, and the retrieved wiki page snippets below as context.\n"
+            "Use wiki/index.md, wiki/log.md, overview pages, and the retrieved wiki snippets below as context.\n"
             "If the wiki is insufficient, say what is missing instead of inventing.\n"
             f"Question: {question}\n"
             f"Retrieved snippets:\n{context}\n"
@@ -262,20 +294,20 @@ class WikiWorkspace:
             "# Claude Code Playbook\n\n"
             "## Workflow A: Ingest Raw Sources Into Wiki\n\n"
             "1. Open the project root.\n"
-            "2. Read `CLAUDE.md`, `wiki/index.md`, and `wiki/log.md` first.\n"
+            "2. Read `AGENTS.md`, `CLAUDE.md`, `wiki/index.md`, and `wiki/log.md` first.\n"
             "3. Review files in `raw/` and deterministic packets in `cache/extracted/`.\n"
             "4. Run the staged ingest workflow in order:\n"
             "   - source-curation\n"
-            "   - topic-synthesis\n"
+            "   - concept-and-entity-synthesis\n"
             "   - index-and-log-finalize\n"
             "5. Never edit `raw/`.\n\n"
-            "### Topic Merge Rules\n\n"
-            "- Strengthen an existing topic page before creating a new overlapping page.\n"
-            "- Merge pages that clearly describe the same system, workflow, decision, or business theme.\n"
-            "- Keep source-specific summary pages under `wiki/sources/` and cross-source synthesis under `wiki/topics/`.\n\n"
+            "### Curation Rules\n\n"
+            "- Strengthen an existing concept or entity page before creating a new overlapping page.\n"
+            "- Merge pages that clearly describe the same system, workflow, decision, business theme, or named entity.\n"
+            "- Keep source-specific summaries under `wiki/summaries/` and cross-source synthesis under `wiki/concepts/`, `wiki/entities/`, and `wiki/syntheses/`.\n\n"
             "## Workflow B: Query The Wiki\n\n"
             "1. Read `wiki/index.md` to find relevant areas.\n"
-            "2. Inspect linked pages and `wiki/log.md` when recent curation matters.\n"
+            "2. Inspect linked overview, concept, entity, summary, and synthesis pages plus `wiki/log.md` when recent curation matters.\n"
             "3. Answer from `wiki/` first.\n"
             "4. If the wiki is insufficient, state the missing coverage clearly.\n\n"
             "## Recommended CLI Helpers\n\n"
@@ -309,17 +341,6 @@ class WikiWorkspace:
                 else:
                     child.unlink()
         self.initialize()
-        (self.project_root / "docs").mkdir(parents=True, exist_ok=True)
-        (self.project_root / "question").mkdir(parents=True, exist_ok=True)
-        (self.project_root / "question" / "group-1.md").write_text(
-            dump_json(
-                [
-                    {"id": "group-1-1", "title": "统计 md 文件的数量", "level": "简单"},
-                    {"id": "group-1-2", "title": "找出 gauss_runbook.md 路径", "level": "简单"},
-                ]
-            ),
-            encoding="utf-8",
-        )
         samples = {
             "raw/product_v1_requirements.md": "# Product V1\n\nThe first release focuses on search, source ingestion, and wiki curation.\n",
             "raw/gauss_runbook.md": "# Gauss Runbook\n\nUse gsql to connect to the database. Keep operational notes factual.\n",
@@ -342,7 +363,7 @@ class WikiWorkspace:
             title=source_path.stem,
             extension=record.extension,
             extracted_path=f"cache/extracted/{slug}.md",
-            wiki_page=f"wiki/sources/{slug}.md",
+            wiki_page=f"wiki/summaries/{slug}.md",
             content_preview=record.content[:2000].strip(),
             comment_signals=comments,
             key_points=key_points,
@@ -360,19 +381,17 @@ class WikiWorkspace:
             "content_preview": packet.content_preview,
         }
         target.write_text(
-            "# Extracted Source Packet\n\n```json\n"
-            + dump_json(payload)
-            + "\n```\n",
+            "# Extracted Source Packet\n\n```json\n" + dump_json(payload) + "\n```\n",
             encoding="utf-8",
         )
 
-    def _write_source_page(self, packet: SourcePacket) -> None:
+    def _write_summary_page(self, packet: SourcePacket) -> None:
         target = self.project_root / packet.wiki_page
         target.parent.mkdir(parents=True, exist_ok=True)
         comment_lines = "\n".join(f"- {item}" for item in packet.comment_signals) or "- None"
         key_points = "\n".join(f"- {item}" for item in packet.key_points) or "- Pending Claude curation"
         content = (
-            f"# Source: {packet.title}\n\n"
+            f"# Summary: {packet.title}\n\n"
             "## Metadata\n\n"
             f"- Raw source: `{packet.rel_path}`\n"
             f"- Extracted packet: `{packet.extracted_path}`\n"
@@ -390,60 +409,128 @@ class WikiWorkspace:
         )
         target.write_text(content, encoding="utf-8")
 
-    def _write_topic_seed_page(self, topic_seed: TopicSeed) -> None:
-        target = self.topics_root / f"{topic_seed.slug}.md"
+    def _write_concept_seed_page(self, topic_seed: TopicSeed) -> None:
+        target = self.concepts_root / f"{topic_seed.slug}.md"
         target.parent.mkdir(parents=True, exist_ok=True)
         source_lines = "\n".join(f"- `{page}`" for page in topic_seed.source_pages) or "- None"
         evidence_lines = "\n".join(f"- {item}" for item in topic_seed.evidence_points) or "- Pending synthesis"
         keyword_lines = ", ".join(f"`{item}`" for item in topic_seed.keywords) or "`pending`"
         content = (
-            f"# Topic: {topic_seed.title}\n\n"
-            "## Topic Type\n\n"
-            "_Seed topic page generated by deterministic ingest. Claude should refine and merge when needed._\n\n"
+            f"# Concept: {topic_seed.title}\n\n"
+            "## Page Type\n\n"
+            "_Seed concept page generated by deterministic ingest. Claude should refine, merge, split, or delete when needed._\n\n"
             "## Candidate Keywords\n\n"
             f"{keyword_lines}\n\n"
-            "## Related Source Pages\n\n"
+            "## Related Summary Pages\n\n"
             f"{source_lines}\n\n"
             "## Evidence Points\n\n"
             f"{evidence_lines}\n\n"
             "## Synthesis Draft\n\n"
-            "- What stable concept, workflow, or decision boundary ties these sources together?\n"
-            "- Should this topic merge with an existing topic page?\n"
-            "- What facts belong here instead of staying only in source pages?\n"
+            "- What reusable concept, workflow, policy, decision, or project is emerging here?\n"
+            "- Should this page merge with an existing concept page?\n"
+            "- Which facts belong here instead of staying only in summary pages?\n"
         )
         target.write_text(content, encoding="utf-8")
 
-    def _refresh_index(self, packets: list[SourcePacket]) -> None:
-        source_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.sources_root.glob("*.md"))
-        topic_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.topics_root.glob("*.md"))
+    def _write_entity_seed_page(self, topic_seed: TopicSeed) -> None:
+        target = self.entities_root / f"{topic_seed.slug}.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source_lines = "\n".join(f"- `{page}`" for page in topic_seed.source_pages) or "- None"
+        evidence_lines = "\n".join(f"- {item}" for item in topic_seed.evidence_points[:3]) or "- Pending entity curation"
+        content = (
+            f"# Entity: {topic_seed.title}\n\n"
+            "## Entity Type\n\n"
+            "_Candidate named entity page. Keep only if this slug corresponds to a durable system, team, product, service, environment, tool, or owner._\n\n"
+            "## Related Summary Pages\n\n"
+            f"{source_lines}\n\n"
+            "## Evidence Points\n\n"
+            f"{evidence_lines}\n\n"
+            "## Entity Draft\n\n"
+            "- What is this entity?\n"
+            "- What other pages should link here?\n"
+            "- If this is not a real durable entity, merge or remove it.\n"
+        )
+        target.write_text(content, encoding="utf-8")
+
+    def _refresh_overview_pages(self, packets: list[SourcePacket], topic_seeds: list[TopicSeed]) -> None:
+        summary_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.summaries_root.glob("*.md"))
+        concept_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.concepts_root.glob("*.md"))
+        entity_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.entities_root.glob("*.md"))
+        dashboards_page = self.overview_root / "dashboards.md"
+        highlights = "\n".join(f"- `{seed.slug}` -> {seed.title}" for seed in topic_seeds[:12]) or "- None"
+        dashboards_page.write_text(
+            "# Overview: Dashboards\n\n"
+            "## Current State\n\n"
+            f"- Raw sources: `{len(packets)}`\n"
+            f"- Summary pages: `{len(summary_pages)}`\n"
+            f"- Concept pages: `{len(concept_pages)}`\n"
+            f"- Entity pages: `{len(entity_pages)}`\n\n"
+            "## Recent Seed Highlights\n\n"
+            f"{highlights}\n",
+            encoding="utf-8",
+        )
+        map_page = self.overview_root / "knowledge-map.md"
+        map_page.write_text(
+            "# Overview: Knowledge Map\n\n"
+            "## Summary Pages\n\n"
+            + ("\n".join(f"- `{page}`" for page in summary_pages) or "- None")
+            + "\n\n## Concept Pages\n\n"
+            + ("\n".join(f"- `{page}`" for page in concept_pages) or "- None")
+            + "\n\n## Entity Pages\n\n"
+            + ("\n".join(f"- `{page}`" for page in entity_pages) or "- None")
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def _refresh_index(self) -> None:
+        overview_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.overview_root.glob("*.md"))
+        summary_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.summaries_root.glob("*.md"))
+        concept_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.concepts_root.glob("*.md"))
+        entity_pages = sorted(page.relative_to(self.project_root).as_posix() for page in self.entities_root.glob("*.md"))
         lines = [
             "# LLM Wiki Index",
             "",
-            "## Operating Mode",
+            "## Operating Model",
             "",
             "- `raw/` stores immutable source material.",
             "- `wiki/` stores the curated knowledge base maintained by Claude Code.",
             "- `cache/extracted/` stores deterministic extraction packets used as ingest aids.",
             "",
-            "## Source Pages",
+            "## Overview",
             "",
         ]
-        for page in source_pages:
-            lines.append(f"- [{Path(page).stem}]({page})")
-        lines.extend(["", "## Topic Pages", ""])
-        if topic_pages:
-            for page in topic_pages:
+        if overview_pages:
+            for page in overview_pages:
                 lines.append(f"- [{Path(page).stem}]({page})")
         else:
-            lines.append("_No topic pages yet._")
+            lines.append("_No overview pages yet._")
+        lines.extend(["", "## Summaries", ""])
+        if summary_pages:
+            for page in summary_pages:
+                lines.append(f"- [{Path(page).stem}]({page})")
+        else:
+            lines.append("_No summary pages yet._")
+        lines.extend(["", "## Concepts", ""])
+        if concept_pages:
+            for page in concept_pages:
+                lines.append(f"- [{Path(page).stem}]({page})")
+        else:
+            lines.append("_No concept pages yet._")
+        lines.extend(["", "## Entities", ""])
+        if entity_pages:
+            for page in entity_pages:
+                lines.append(f"- [{Path(page).stem}]({page})")
+        else:
+            lines.append("_No entity pages yet._")
         lines.extend(
             [
                 "",
                 "## Curation Notes",
                 "",
-                "- Create higher-level concept pages when multiple source pages converge on one topic.",
-                "- Merge overlapping topic pages instead of proliferating synonyms.",
-                "- Keep factual claims tied back to a source page or raw source.",
+                "- Use `wiki/summaries/` for source-grounded summaries.",
+                "- Use `wiki/concepts/` for reusable ideas, workflows, systems, and decisions.",
+                "- Use `wiki/entities/` for named products, tools, services, teams, environments, and owners.",
+                "- Keep factual claims tied back to a summary page or raw source.",
             ]
         )
         self.index_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -455,7 +542,7 @@ class WikiWorkspace:
         self.log_md.write_text(existing + block, encoding="utf-8")
 
     def _extract_key_points(self, text: str, limit: int = 6) -> list[str]:
-        sentences = [part.strip() for part in re.split(r"[\n。!?]+", text) if part.strip()]
+        sentences = [part.strip() for part in re.split(r"[\n。！？!?]+", text) if part.strip()]
         cleaned: list[str] = []
         for sentence in sentences:
             normalized = re.sub(r"\s+", " ", sentence)
@@ -482,24 +569,31 @@ class WikiWorkspace:
                         "keywords": Counter(),
                     },
                 )
-                if packet.wiki_page not in bucket["source_pages"]:
-                    bucket["source_pages"].append(packet.wiki_page)
+                source_pages = bucket["source_pages"]
+                evidence_points = bucket["evidence_points"]
+                keywords = bucket["keywords"]
+                assert isinstance(source_pages, list)
+                assert isinstance(evidence_points, list)
+                assert isinstance(keywords, Counter)
+                if packet.wiki_page not in source_pages:
+                    source_pages.append(packet.wiki_page)
                 for point in packet.key_points[:3]:
-                    if point not in bucket["evidence_points"]:
-                        bucket["evidence_points"].append(point)
+                    if point not in evidence_points:
+                        evidence_points.append(point)
                 for keyword in self._topic_keywords_from_phrase(topic_phrase):
-                    bucket["keywords"][keyword] += 1
+                    keywords[keyword] += 1
         topic_seeds: list[TopicSeed] = []
         for slug, bucket in grouped.items():
             source_pages = bucket["source_pages"]
             evidence_points = bucket["evidence_points"][:5]
             keywords = [item for item, _count in bucket["keywords"].most_common(6)]
+            assert isinstance(source_pages, list)
             if not source_pages:
                 continue
             topic_seeds.append(
                 TopicSeed(
                     slug=slug,
-                    title=bucket["title"],
+                    title=str(bucket["title"]),
                     source_pages=source_pages,
                     evidence_points=evidence_points,
                     keywords=keywords,
@@ -525,8 +619,7 @@ class WikiWorkspace:
         return focused[:5]
 
     def _normalize_topic_phrase(self, phrase: str) -> str:
-        normalized = re.sub(r"\s+", " ", phrase).strip(" -_:,.")
-        return normalized
+        return re.sub(r"\s+", " ", phrase).strip(" -_:,.")
 
     def _is_useful_topic_phrase(self, phrase: str) -> bool:
         lowered = phrase.lower()
@@ -547,8 +640,6 @@ class WikiWorkspace:
         normalized = phrase.lower().replace("/", " ").replace("\\", " ")
         normalized = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", normalized)
         normalized = normalized.strip("-")
-        if not normalized:
-            return ""
         return normalized[:60]
 
     def _display_topic(self, phrase: str) -> str:
@@ -599,7 +690,11 @@ class WikiWorkspace:
             "## Architecture\n\n"
             "- `raw/`: immutable source material.\n"
             "- `wiki/`: curated markdown knowledge base.\n"
-            "- `cache/extracted/`: deterministic extraction packets that help ingest, but are not the final wiki.\n\n"
+            "- `cache/extracted/`: deterministic extraction packets that help ingest, but are not the final wiki.\n"
+            "- `wiki/summaries/`: source-grounded summary pages.\n"
+            "- `wiki/concepts/`: cross-source concepts, workflows, projects, decisions, and systems.\n"
+            "- `wiki/entities/`: named tools, teams, owners, products, services, and environments.\n"
+            "- `wiki/syntheses/`: higher-order synthesis pages when many concept clusters converge.\n\n"
             "## Primary Operations\n\n"
             "1. Ingest: read raw sources and update wiki pages.\n"
             "2. Query: answer from the curated wiki, not directly from raw sources when avoidable.\n"
@@ -608,19 +703,61 @@ class WikiWorkspace:
             "- Never modify `raw/`.\n"
             "- Keep `wiki/index.md` current.\n"
             "- Append factual entries to `wiki/log.md` whenever the wiki changes.\n"
-            "- Prefer updating existing concept pages over creating duplicates.\n"
-            "- Cite raw sources by path inside the relevant source page.\n"
-            "- Use `wiki/topics/` for cross-source synthesis, not source-local facts.\n"
-            "- Merge overlapping topic pages when they represent the same concept or workflow.\n"
+            "- Prefer updating existing concept or entity pages over creating duplicates.\n"
+            "- Cite raw sources by path inside the relevant summary page.\n"
+            "- Keep source-specific facts in `wiki/summaries/`.\n"
+            "- Use `wiki/concepts/`, `wiki/entities/`, and `wiki/syntheses/` for cross-source synthesis.\n"
+            "- Merge overlapping pages when they represent the same concept, workflow, or entity.\n"
+        )
+
+    def _default_agents_md(self) -> str:
+        return (
+            "# AGENTS.md\n\n"
+            "This repository is a Claude-native LLM Wiki.\n\n"
+            "## Maintainer Model\n\n"
+            "- Claude Code is the primary maintainer of `wiki/`.\n"
+            "- Local Python code only provides deterministic ingest aids, scaffolding, and compatibility tooling.\n\n"
+            "## Canonical Wiki Shapes\n\n"
+            "- `wiki/summaries/`: one page per source or source bundle.\n"
+            "- `wiki/concepts/`: reusable ideas, workflows, systems, projects, policies, decisions.\n"
+            "- `wiki/entities/`: named products, teams, tools, environments, services, owners.\n"
+            "- `wiki/syntheses/`: broader pages that unify many concepts or entities.\n"
+            "- `wiki/overview/`: navigation and dashboards.\n\n"
+            "## Rules\n\n"
+            "- Treat `raw/` as immutable evidence.\n"
+            "- Prefer editing existing concept and entity pages over creating near-duplicates.\n"
+            "- Keep summaries close to evidence; keep concepts and entities cross-source.\n"
+            "- Update index, overview pages, and log after meaningful curation.\n"
         )
 
     def _default_index_md(self) -> str:
         return (
             "# LLM Wiki Index\n\n"
-            "## Operating Mode\n\n"
+            "## Operating Model\n\n"
             "- `raw/` stores immutable source material.\n"
             "- `wiki/` stores the curated knowledge base maintained by Claude Code.\n"
             "- `cache/extracted/` stores deterministic extraction packets used as ingest aids.\n\n"
-            "## Source Pages\n\n"
-            "_No source pages yet._\n"
+            "## Overview\n\n"
+            "_No overview pages yet._\n"
         )
+
+    def _ensure_claude_commands(self) -> None:
+        commands = {
+            "ingest-wiki.md": (
+                "# /ingest-wiki\n\n"
+                "Read `AGENTS.md`, `CLAUDE.md`, `wiki/index.md`, and `wiki/log.md`, then run the staged wiki ingest workflow over the current repository.\n"
+            ),
+            "query-wiki.md": (
+                "# /query-wiki\n\n"
+                "Answer from the curated wiki first. Read `wiki/index.md`, inspect linked pages, and state any missing coverage explicitly.\n"
+            ),
+            "lint-wiki.md": (
+                "# /lint-wiki\n\n"
+                "Check that summary pages, concept pages, entity pages, overview pages, and log pages remain coherent and up to date.\n"
+            ),
+        }
+        self.claude_commands_root.mkdir(parents=True, exist_ok=True)
+        for name, content in commands.items():
+            target = self.claude_commands_root / name
+            if not target.exists():
+                target.write_text(content, encoding="utf-8")

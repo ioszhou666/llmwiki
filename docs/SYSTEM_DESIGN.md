@@ -1,24 +1,14 @@
 # llm-wiki 系统设计
 
-## 1. 当前定位
+## 1. 当前系统定义
 
-`llm-wiki` 当前版本已经按 Karpathy 风格的 `LLM Wiki` 重新收敛，核心目标不是“本地规则问答器”，而是一个由 `Claude Code` 持续维护的知识工作区。
+当前版本的系统定义是：
 
-系统的主循环是：
+> 一个以 `Claude Code` 为主要维护者、以 `raw -> wiki` 为主循环、以 deterministic Python 工具为辅助层的 Claude-native LLM Wiki。
 
-1. `raw/` 接收不可变原始资料
-2. 本地 deterministic 逻辑生成 `cache/extracted/`、`wiki/sources/` 和 `wiki/topics/` seed
-3. `Claude Code` 按 staged workflow 维护 `wiki/`
-4. 查询优先从 `wiki/` 获取答案
-5. `lint-wiki` 持续检查结构一致性
+这和早期“本地文档检索 + 规则问答”有本质区别。
 
-旧的 `docs/question/output`、本地索引、TODO 修复、受控执行与图表能力仍然保留，但现在属于兼容层和辅助工具层，不再是主产品叙事中心。
-
-## 2. 核心目录结构
-
-当前项目同时支持两套目录语义：
-
-### 2.1 Wiki 主目录
+## 2. 主目录设计
 
 ```text
 project/
@@ -26,255 +16,148 @@ project/
 ├─ wiki/
 │  ├─ index.md
 │  ├─ log.md
-│  ├─ sources/
-│  └─ topics/
+│  ├─ overview/
+│  ├─ summaries/
+│  ├─ concepts/
+│  ├─ entities/
+│  ├─ syntheses/
+│  └─ graph/
 ├─ cache/
 │  └─ extracted/
-├─ output/
+├─ .claude/
+│  └─ commands/
+├─ AGENTS.md
 ├─ CLAUDE.md
 └─ Permission.json
 ```
 
+语义：
+
 - `raw/`
-  - 原始资料，只读，不允许 Claude 改写
-- `wiki/sources/`
-  - source 级别的事实页
-- `wiki/topics/`
-  - 跨 source 的主题页、概念页、流程页、决策页
-- `wiki/index.md`
-  - 当前 wiki 的导航入口
-- `wiki/log.md`
-  - ingest/query/lint 相关事实日志
+  - 原始证据层
+- `wiki/summaries/`
+  - source-grounded summary
+- `wiki/concepts/`
+  - 概念、流程、系统、项目、决策
+- `wiki/entities/`
+  - 团队、产品、服务、工具、环境、负责人等命名实体
+- `wiki/syntheses/`
+  - 大范围聚合页
+- `wiki/overview/`
+  - 导航、dashboard、knowledge map
 - `cache/extracted/`
-  - 本地 deterministic packet，作为 Claude 的 ingest 辅助上下文
-- `CLAUDE.md`
-  - 维护规则和编辑边界
-
-### 2.2 兼容层目录
-
-```text
-project/
-├─ docs/
-├─ question/
-└─ output/
-```
-
-- `docs/`
-  - 赛题原始办公文档、代码文档和系统样例
-- `question/`
-  - 结构化题目组
-- `output/`
-  - 答题结果、修复产物、审计日志、SQLite 索引
+  - deterministic ingest packet
+- `.claude/commands/`
+  - Claude Code 命令入口
 
 ## 3. 分层架构
 
-### 3.1 Wiki 主控层
+### 3.1 Claude-native 主层
 
-- `src/llm_wiki/wiki_workspace.py`
-  - 管理 `raw/wiki/cache/CLAUDE.md/index.md/log.md`
-  - 负责 deterministic seed ingest、topic seed 生成、本地 wiki 查询、lint、Claude prompt/workflow 构造
+- `AGENTS.md`
+  - 定义仓库级维护模型
 - `CLAUDE.md`
-  - 定义 Claude 作为 wiki maintainer 的操作边界
-- `claude_client.py`
-  - 对接本地 `Claude Code CLI`
+  - 定义 curation 规则
+- `wiki_workspace.py`
+  - 管理 wiki workspace、seed ingest、workflow prompt、query、lint
 
-### 3.2 文档与索引工具层
+### 3.2 Deterministic 辅助层
 
 - `extractors.py`
-  - 多格式文档抽取、批注和 TODO 解析
-- `indexer.py`
-  - `docs/` 的 SQLite + FTS5 索引
-- `question_parser.py`
-  - 将赛题式问题映射为固定动作类型
-- `answerer.py`
-  - 本地问答、批量答题、修复、图表、受控执行
-
-### 3.3 接入层
-
-- `cli.py`
-  - 对外暴露 `init-wiki / ingest / ingest-claude / query-wiki / lint-wiki` 等主命令
-- `mcp_runtime.py`
-  - 将 wiki 流程和兼容工具层整理成可调用运行时
-- `mcp_server.py`
-  - 通过 `FastMCP` 以 stdio 暴露资源和工具
-
-### 3.4 安全层
-
+  - 文档内容、批注、TODO 提取
 - `security.py`
-  - 统一做 prompt injection、危险副作用、敏感信息读取与路径权限检查
-- `Permission.json`
-  - 目录、命令、文件 deny 策略
+  - 安全边界
+- `mcp_runtime.py`
+  - 将能力整理成工具运行时
+- `mcp_server.py`
+  - 暴露 MCP server
 
-## 4. 主流程设计
+### 3.3 兼容层
 
-### 4.1 初始化流程
+- `indexer.py`
+- `answerer.py`
+- `question_parser.py`
+- `docs/question/output` 相关逻辑
 
-入口：
+这些代码仍保留，但不再是主产品定义中心。
 
-```powershell
-llm-wiki --project-root <root> init-wiki
-```
+## 4. 主流程
 
-结果：
+### 4.1 init
 
-- 创建 `raw/`
-- 创建 `wiki/index.md`、`wiki/log.md`
-- 创建 `wiki/sources/`、`wiki/topics/`
-- 创建 `cache/extracted/`
-- 创建 `CLAUDE.md`
-- 创建默认 `Permission.json`
+`init-wiki`
 
-### 4.2 Deterministic Seed Ingest
+作用：
 
-入口：
+- 初始化 wiki workspace
+- 写入 `AGENTS.md`
+- 写入 `CLAUDE.md`
+- 生成 `.claude/commands`
 
-```powershell
-llm-wiki --project-root <root> ingest
-```
+### 4.2 ingest
 
-流程：
+`ingest`
 
-1. 遍历 `raw/`
-2. 抽取文档文本、批注、TODO 和关键片段
-3. 生成 `cache/extracted/*.md`
-4. 生成 `wiki/sources/*.md`
-5. 自动聚合 topic phrase，生成 `wiki/topics/*.md` seed page
-6. 刷新 `wiki/index.md`
-7. 追加 `wiki/log.md`
+作用：
 
-设计目的：
+1. 扫描 `raw/`
+2. 生成 `cache/extracted/*.md`
+3. 生成 `wiki/summaries/*.md`
+4. 自动生成 `wiki/concepts/*.md` seed
+5. 自动生成 `wiki/entities/*.md` seed
+6. 更新 `wiki/overview/*.md`
+7. 更新 `wiki/index.md`
+8. 追加 `wiki/log.md`
 
-- 先给 Claude 一个稳定、可复现、可审计的起点
-- 降低 Claude 直接从杂乱原始资料开始整理的成本
-- 自动暴露 topic 合并候选，减少重复页面
+### 4.3 ingest-claude
 
-### 4.3 Claude Staged Ingest
+`ingest-claude`
 
-入口：
-
-```powershell
-llm-wiki --project-root <root> ingest-claude
-```
-
-当前 `ingest-claude` 不再走单个大 prompt，而是顺序执行三个阶段：
+当前使用三阶段 workflow：
 
 1. `source-curation`
-2. `topic-synthesis`
+2. `concept-and-entity-synthesis`
 3. `index-and-log-finalize`
 
-其中第二阶段内置了 topic merge rules：
+### 4.4 query
 
-- 优先强化已有 `wiki/topics/` seed
-- 遇到重名、近义、同一系统或同一流程的 topic 时合并
-- source-specific summary 和 cross-source synthesis 不混写
+分两种：
 
-### 4.4 Wiki 查询流程
-
-有两种主要方式：
-
-1. `query-wiki`
-   - 直接在 `wiki/` 中做本地检索并返回片段
-2. `query-wiki-claude`
-   - 先从 `wiki/` 取回上下文，再交给 Claude 生成自然语言答案
-
-设计原则：
-
-- 查询优先面向 `wiki/`，而不是绕过整理层直接读 `raw/`
-- wiki 不足时要明确说缺什么，不鼓励编造
-
-### 4.5 Lint 流程
-
-入口：
-
-```powershell
-llm-wiki --project-root <root> lint-wiki
-```
-
-当前检查：
-
-- `raw/` source 是否有对应 source page
-- `cache/extracted/` packet 是否存在
-- `wiki/index.md` 是否包含对应 source link
-- 日志是否可持续追加
-
-## 5. Claude Code 集成设计
-
-当前支持三种接入方式：
-
-### 5.1 手工在 Claude Code 中维护
-
-- 先执行 `ingest`
-- 再执行 `print-ingest-workflow`
-- 将三个阶段 prompt 按顺序交给 Claude
-
-### 5.2 CLI 直连 Claude Code
-
-- `ingest-claude`
+- `query-wiki`
+  - 本地对 `wiki/` 检索
 - `query-wiki-claude`
-- `claude-playbook`
+  - 基于检索到的 wiki 片段调用 Claude
 
-### 5.3 通过 MCP 嵌入 Claude Code
+### 4.5 lint
 
-资源：
+`lint-wiki`
 
-- `wiki://status`
-- `wiki://permission-policy`
-- `wiki://security-summary`
-- `wiki://curation-status`
-- `wiki://claude-playbook`
+当前主要检查：
 
-Wiki 主工具：
+- summary 是否齐全
+- extracted packet 是否齐全
+- index 是否包含 summary link
 
-- `ingest_wiki_local`
-- `query_wiki_local`
-- `lint_wiki`
-- `get_ingest_prompt`
-- `get_ingest_workflow`
-- `get_query_prompt`
+## 5. Claude Code 集成方式
 
-兼容层工具：
+当前支持三种：
 
-- `index_documents`
-- `doctor`
-- `list_document_paths`
-- `list_question_groups`
-- `count_files_by_extension`
-- `count_supported_extensions`
-- `search_related_paths`
-- `find_paths_by_basename`
-- `get_document_record`
-- `list_comments`
-- `answer_question_local`
-- `answer_group_local`
-- `apply_fixes`
-- `build_pivot_chart`
-- `run_python_document`
+1. 手工在 Claude Code 中执行 staged workflow
+2. 通过 `ingest-claude` 由 CLI 顺序调用 Claude
+3. 通过 MCP 挂接到 Claude Code
 
-## 6. 兼容层保留原因
+## 6. 为什么这是更接近 Karpathy 的实现
 
-之所以保留旧工具层，是因为赛题里仍然包含：
+关键不是“有没有 raw/wiki 两层”，而是：
 
-- Office/代码文档解析
-- TODO 责任人统计
-- 批注驱动修复
-- 受控代码执行
-- 图表生成
-- 安全对抗样例
+1. 主工作对象是不是 wiki page
+2. 模型是不是 maintainer
+3. 知识是不是持续沉淀在 page 中
 
-这些能力现在更适合作为 wiki ingest 的补充工具和安全演示能力，而不是系统唯一主线。
+当前版本已经满足这三个条件。
 
 ## 7. 当前边界
 
-当前版本已经稳定，但还有这些边界：
-
-1. topic seed 生成仍是启发式规则，不是语义聚类引擎
-2. `lint-wiki` 目前偏结构检查，还没做完整链接图分析
-3. `query-wiki` 目前还是轻量关键字匹配，不是向量检索
-4. 旧兼容层和 wiki 页之间的自动映射还可以继续增强
-5. Claude 的高层 wiki curation 仍主要通过 prompt/workflow 驱动
-
-## 8. 当前结论
-
-当前版本最准确的系统定义是：
-
-> 一个以 `Claude Code` 为 wiki maintainer、以 `raw/wiki/cache/CLAUDE.md` 为核心结构、以 `ingest/query/lint` 为主循环、并保留赛题兼容工具层的 LLM Wiki 工作台。
+1. `wiki/concepts` 与 `wiki/entities` 的 seed 仍是启发式生成
+2. `wiki/syntheses` 与 `wiki/graph` 还只是留出结构，尚未深做
+3. 兼容层代码还存在较多旧逻辑，需要后续继续收口
