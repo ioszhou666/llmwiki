@@ -130,6 +130,7 @@ claude mcp add llmwiki -- python -m llm_wiki.mcp_server --project-root D:\llmwik
 
 ## 相关文档
 
+- [docs/CLAUDE_CODE_EXTERNAL_SETUP.md](docs/CLAUDE_CODE_EXTERNAL_SETUP.md)
 - [docs/OPEN_SOURCE_RESEARCH.md](docs/OPEN_SOURCE_RESEARCH.md)
 - [docs/CLAUDE_USAGE.md](docs/CLAUDE_USAGE.md)
 - [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)
