@@ -10,13 +10,12 @@ from .wiki_workspace import WikiWorkspace
 
 
 class WikiRuntime:
-    def __init__(self, project_root: Path, db_path: Path | None = None) -> None:
+    def __init__(self, project_root: Path) -> None:
         self.project_root = project_root.resolve()
         self.docs_root = self.project_root / "docs"
         self.output_root = self.project_root / "output"
         self.permission_path = self.project_root / "Permission.json"
-        self.db_path = (db_path or self.output_root / "wiki.db").resolve()
-        self.index = WikiIndex(self.db_path)
+        self.index = WikiIndex(self.docs_root, self.project_root)
         self.policy = PermissionPolicy.from_file(self.permission_path)
         self.wiki_workspace = WikiWorkspace(self.project_root)
         self.engine = AnswerEngine(
@@ -31,20 +30,21 @@ class WikiRuntime:
 
     def doctor(self) -> dict[str, object]:
         self.wiki_workspace.initialize()
+        document_count = self.index.refresh()
         return {
             "project_root": self.project_root.as_posix(),
             "raw_exists": self.wiki_workspace.raw_root.exists(),
             "wiki_exists": self.wiki_workspace.wiki_root.exists(),
             "docs_exists": self.docs_root.exists(),
             "output_exists": self.output_root.exists(),
-            "db_path": self.db_path.as_posix(),
-            "document_count": len(self.list_document_paths()),
+            "document_store": "ephemeral_scan",
+            "document_count": document_count,
             "raw_source_count": len(self.wiki_workspace.list_raw_sources()),
         }
 
-    def index_documents(self) -> dict[str, object]:
-        count = self.index.index_documents(self.docs_root, self.project_root)
-        return {"indexed": count, "db_path": self.db_path.as_posix()}
+    def scan_documents(self) -> dict[str, object]:
+        count = self.index.refresh()
+        return {"scanned": count, "mode": "ephemeral_scan"}
 
     def wiki_status(self) -> dict[str, object]:
         return self.wiki_workspace.initialize()
@@ -76,14 +76,17 @@ class WikiRuntime:
         return {"prompt": self.wiki_workspace.build_query_prompt(question, limit=limit)}
 
     def list_document_paths(self) -> list[str]:
+        self.index.refresh()
         return [path for path in self.index.list_document_paths() if not self.policy.is_path_denied(path)]
 
     def count_files_by_extension(self, extension: str) -> dict[str, int]:
+        self.index.refresh()
         suffix = f".{extension.lower()}"
         total = sum(1 for rel_path in self.list_document_paths() if Path(rel_path).suffix.lower() == suffix)
         return {extension.lower(): total}
 
     def count_supported_extensions(self) -> dict[str, int]:
+        self.index.refresh()
         counts: dict[str, int] = {}
         for rel_path in self.list_document_paths():
             ext = Path(rel_path).suffix.lstrip(".").lower()
@@ -91,6 +94,7 @@ class WikiRuntime:
         return {key: counts[key] for key in sorted(counts)}
 
     def search_related_paths(self, keyword: str, limit: int = 20) -> dict[str, list[str]]:
+        self.index.refresh()
         paths = [
             path
             for path in self.index.search_related_paths(keyword, limit=limit)
@@ -99,6 +103,7 @@ class WikiRuntime:
         return {"datas": paths}
 
     def find_paths_by_basename(self, basename: str) -> dict[str, list[str]]:
+        self.index.refresh()
         paths = [
             path
             for path in self.index.find_paths_by_basename(basename)
@@ -107,6 +112,7 @@ class WikiRuntime:
         return {"datas": paths}
 
     def get_document_record(self, rel_path: str) -> dict[str, object]:
+        self.index.refresh()
         if self.policy.is_path_denied(rel_path):
             return {"error_msg": "高危命令，拒绝访问"}
         return {
@@ -116,7 +122,7 @@ class WikiRuntime:
             "comments": [
                 dict(row)
                 for row in self.index.list_comments(rel_path=rel_path)
-                if not self.policy.is_path_denied(row["rel_path"])
+                if not self.policy.is_path_denied(str(row["rel_path"]))
             ],
         }
 
@@ -126,21 +132,26 @@ class WikiRuntime:
         assignee: str | None = None,
         due_date: str | None = None,
     ) -> dict[str, list[dict[str, object]]]:
+        self.index.refresh()
         if rel_path and self.policy.is_path_denied(rel_path):
             return {"datas": []}
         rows = self.index.list_comments(rel_path=rel_path, assignee=assignee, due_date=due_date)
-        return {"datas": [dict(row) for row in rows if not self.policy.is_path_denied(row["rel_path"])]}
+        return {"datas": [dict(row) for row in rows if not self.policy.is_path_denied(str(row["rel_path"]))]}
 
     def answer_question_local(self, question: str) -> dict[str, object]:
+        self.index.refresh()
         return self.engine.answer_question(question)
 
     def apply_fixes(self, rel_path: str) -> dict[str, object]:
+        self.index.refresh()
         return self.engine.apply_fixes(rel_path)
 
     def build_pivot_chart(self, rel_path: str) -> dict[str, object]:
+        self.index.refresh()
         return self.engine.build_pivot_chart(rel_path)
 
     def run_python_document(self, rel_path: str) -> dict[str, object]:
+        self.index.refresh()
         return self.engine.run_python_document(rel_path)
 
     def permission_policy_snapshot(self) -> dict[str, object]:

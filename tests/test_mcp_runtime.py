@@ -69,9 +69,10 @@ def test_mcp_runtime_legacy_utility_tools(tmp_path: Path) -> None:
         doctor = runtime.doctor()
         assert doctor["docs_exists"] is True
         assert doctor["wiki_exists"] is True
+        assert doctor["document_store"] == "ephemeral_scan"
 
-        indexed = runtime.index_documents()
-        assert indexed["indexed"] == 2
+        scanned = runtime.scan_documents()
+        assert scanned == {"scanned": 2, "mode": "ephemeral_scan"}
 
         paths = runtime.list_document_paths()
         assert "docs/notes.md" in paths

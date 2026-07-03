@@ -1,228 +1,108 @@
 from __future__ import annotations
 
-import json
-import sqlite3
+import re
 from pathlib import Path
 
 from .constants import SUPPORTED_EXTENSIONS
 from .extractors import discover_documents, extract_document
-from .models import CommentRecord, DocumentRecord
+from .models import DocumentRecord
 
 
 class WikiIndex:
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(self.db_path)
-        self.connection.row_factory = sqlite3.Row
-        self._create_schema()
+    def __init__(self, docs_root: Path, project_root: Path) -> None:
+        self.docs_root = docs_root
+        self.project_root = project_root
+        self._documents: dict[str, DocumentRecord] = {}
+        self._comment_rows: list[dict[str, object]] = []
 
     def close(self) -> None:
-        self.connection.close()
+        return None
 
-    def _create_schema(self) -> None:
-        self.connection.executescript(
-            """
-            create table if not exists documents (
-                path text primary key,
-                rel_path text not null,
-                ext text not null,
-                content text not null,
-                metadata text not null
-            );
-            create table if not exists comments (
-                id integer primary key autoincrement,
-                rel_path text not null,
-                ext text not null,
-                text text not null,
-                todo_text text,
-                kind text not null,
-                assignee text,
-                due_date text,
-                author text,
-                created_at text,
-                location text,
-                structured integer not null default 0
-            );
-            create virtual table if not exists docs_fts using fts5(
-                rel_path,
-                ext,
-                content
-            );
-            create virtual table if not exists comments_fts using fts5(
-                rel_path,
-                ext,
-                text,
-                todo_text,
-                assignee
-            );
-            """
-        )
-        self.connection.commit()
-
-    def reset(self) -> None:
-        self.connection.executescript(
-            """
-            delete from documents;
-            delete from comments;
-            delete from docs_fts;
-            delete from comments_fts;
-            """
-        )
-        self.connection.commit()
-
-    def index_documents(self, docs_root: Path, project_root: Path) -> int:
-        self.reset()
+    def refresh(self) -> int:
+        self._documents = {}
+        self._comment_rows = []
+        if not self.docs_root.exists():
+            return 0
         indexed = 0
-        for path in discover_documents(docs_root):
+        for path in discover_documents(self.docs_root):
             extension = path.suffix.lstrip(".").lower()
             if extension not in SUPPORTED_EXTENSIONS and path.suffix:
                 continue
-            record = extract_document(path, project_root)
-            self._upsert_document(record)
+            record = extract_document(path, self.project_root)
+            self._documents[record.relative_path] = record
+            for comment in record.comments:
+                self._comment_rows.append(
+                    {
+                        "rel_path": record.relative_path,
+                        "ext": record.extension,
+                        "text": comment.text,
+                        "todo_text": comment.todo_text,
+                        "kind": comment.kind,
+                        "assignee": comment.assignee,
+                        "due_date": comment.due_date,
+                        "author": comment.author,
+                        "created_at": comment.created_at,
+                        "location": comment.location,
+                        "structured": int(comment.structured),
+                    }
+                )
             indexed += 1
-        self.connection.commit()
+        self._comment_rows.sort(key=lambda row: (str(row["rel_path"]), str(row["location"] or "")))
         return indexed
 
-    def _upsert_document(self, record: DocumentRecord) -> None:
-        self.connection.execute(
-            """
-            insert or replace into documents(path, rel_path, ext, content, metadata)
-            values(?, ?, ?, ?, ?)
-            """,
-            (
-                record.absolute_path,
-                record.relative_path,
-                record.extension,
-                record.content,
-                json.dumps(record.metadata, ensure_ascii=False),
-            ),
-        )
-        self.connection.execute(
-            "insert into docs_fts(rel_path, ext, content) values(?, ?, ?)",
-            (record.relative_path, record.extension, record.content),
-        )
-        for comment in record.comments:
-            self._insert_comment(record.relative_path, record.extension, comment)
-
-    def _insert_comment(self, rel_path: str, extension: str, comment: CommentRecord) -> None:
-        self.connection.execute(
-            """
-            insert into comments(rel_path, ext, text, todo_text, kind, assignee, due_date, author, created_at, location, structured)
-            values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                rel_path,
-                extension,
-                comment.text,
-                comment.todo_text,
-                comment.kind,
-                comment.assignee,
-                comment.due_date,
-                comment.author,
-                comment.created_at,
-                comment.location,
-                int(comment.structured),
-            ),
-        )
-        self.connection.execute(
-            "insert into comments_fts(rel_path, ext, text, todo_text, assignee) values(?, ?, ?, ?, ?)",
-            (rel_path, extension, comment.text, comment.todo_text or "", comment.assignee or ""),
-        )
-
-    def count_files_by_extension(self, extension: str) -> int:
-        row = self.connection.execute(
-            "select count(*) as total from documents where ext = ?",
-            (extension.lower(),),
-        ).fetchone()
-        return int(row["total"])
-
-    def count_supported_extensions(self) -> dict[str, int]:
-        rows = self.connection.execute(
-            "select ext, count(*) as total from documents group by ext order by ext"
-        ).fetchall()
-        return {row["ext"]: int(row["total"]) for row in rows}
+    def list_document_paths(self) -> list[str]:
+        return sorted(self._documents)
 
     def find_paths_by_basename(self, basename: str) -> list[str]:
-        rows = self.connection.execute("select rel_path from documents order by rel_path").fetchall()
         target = basename.casefold()
-        return [row["rel_path"] for row in rows if Path(row["rel_path"]).name.casefold() == target]
+        return [path for path in self.list_document_paths() if Path(path).name.casefold() == target]
 
-    def list_document_paths(self) -> list[str]:
-        rows = self.connection.execute("select rel_path from documents order by rel_path").fetchall()
-        return [row["rel_path"] for row in rows]
+    def count_files_by_extension(self, extension: str) -> int:
+        suffix = f".{extension.lower()}"
+        return sum(1 for rel_path in self.list_document_paths() if Path(rel_path).suffix.lower() == suffix)
+
+    def count_supported_extensions(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for rel_path in self.list_document_paths():
+            ext = Path(rel_path).suffix.lstrip(".").lower()
+            counts[ext] = counts.get(ext, 0) + 1
+        return {key: counts[key] for key in sorted(counts)}
 
     def search_paths(self, keyword: str, limit: int = 20) -> list[str]:
-        rows = self.connection.execute(
-            """
-            select rel_path
-            from docs_fts
-            where docs_fts match ?
-            group by rel_path
-            limit ?
-            """,
-            (to_fts_query(keyword), limit),
-        ).fetchall()
-        if rows:
-            return [row["rel_path"] for row in rows]
-        fallback = self.connection.execute(
-            """
-            select rel_path
-            from documents
-            where rel_path like ? or content like ?
-            order by rel_path
-            limit ?
-            """,
-            (f"%{keyword}%", f"%{keyword}%", limit),
-        ).fetchall()
-        return [row["rel_path"] for row in fallback]
+        terms = _search_terms(keyword)
+        matches: list[str] = []
+        for rel_path in self.list_document_paths():
+            record = self._documents[rel_path]
+            haystacks = (record.relative_path, record.content)
+            if _matches_terms(haystacks, terms):
+                matches.append(rel_path)
+            if len(matches) >= limit:
+                break
+        return matches
 
-    def search_snippet_rows(self, keyword: str, limit: int = 5) -> list[sqlite3.Row]:
-        rows = self.connection.execute(
-            """
-            select rel_path, snippet(docs_fts, 2, '[', ']', '...', 12) as snippet
-            from docs_fts
-            where docs_fts match ?
-            limit ?
-            """,
-            (to_fts_query(keyword), limit),
-        ).fetchall()
-        filtered_rows = [row for row in rows if row["snippet"]]
-        if filtered_rows:
-            return filtered_rows
-        fallback = self.connection.execute(
-            """
-            select rel_path, substr(content, 1, 120) as snippet
-            from documents
-            where content like ?
-            limit ?
-            """,
-            (f"%{keyword}%", limit),
-        ).fetchall()
-        return [row for row in fallback if row["snippet"]]
+    def search_snippet_rows(self, keyword: str, limit: int = 5) -> list[dict[str, str]]:
+        terms = _search_terms(keyword)
+        rows: list[dict[str, str]] = []
+        for rel_path in self.list_document_paths():
+            record = self._documents[rel_path]
+            snippet = _build_snippet(record.content, terms)
+            if snippet:
+                rows.append({"rel_path": rel_path, "snippet": snippet})
+            if len(rows) >= limit:
+                break
+        return rows
 
     def search_comment_paths(self, keyword: str, limit: int = 20) -> list[str]:
-        rows = self.connection.execute(
-            """
-            select distinct rel_path
-            from comments_fts
-            where comments_fts match ?
-            limit ?
-            """,
-            (to_fts_query(keyword), limit),
-        ).fetchall()
-        if rows:
-            return [row["rel_path"] for row in rows]
-        fallback = self.connection.execute(
-            """
-            select distinct rel_path
-            from comments
-            where text like ? or todo_text like ?
-            limit ?
-            """,
-            (f"%{keyword}%", f"%{keyword}%", limit),
-        ).fetchall()
-        return [row["rel_path"] for row in fallback]
+        terms = _search_terms(keyword)
+        matches: list[str] = []
+        for row in self._comment_rows:
+            if _matches_terms((str(row["text"]), str(row["todo_text"] or ""), str(row["assignee"] or "")), terms):
+                rel_path = str(row["rel_path"])
+                if rel_path not in matches:
+                    matches.append(rel_path)
+            if len(matches) >= limit:
+                break
+        return matches
 
     def search_related_paths(self, keyword: str, limit: int = 20) -> list[str]:
         merged: list[str] = []
@@ -235,49 +115,57 @@ class WikiIndex:
         return merged[:limit]
 
     def get_document_content(self, rel_path: str) -> str | None:
-        row = self.connection.execute("select content from documents where rel_path = ?", (rel_path,)).fetchone()
-        return row["content"] if row else None
+        record = self._documents.get(rel_path)
+        return record.content if record else None
 
     def get_document_absolute_path(self, rel_path: str) -> str | None:
-        row = self.connection.execute("select path from documents where rel_path = ?", (rel_path,)).fetchone()
-        return row["path"] if row else None
+        record = self._documents.get(rel_path)
+        return record.absolute_path if record else None
 
     def get_document_extension(self, rel_path: str) -> str | None:
-        row = self.connection.execute("select ext from documents where rel_path = ?", (rel_path,)).fetchone()
-        return row["ext"] if row else None
+        record = self._documents.get(rel_path)
+        return record.extension if record else None
 
     def list_comments(
         self,
         rel_path: str | None = None,
         assignee: str | None = None,
         due_date: str | None = None,
-    ) -> list[sqlite3.Row]:
-        clauses = []
-        params: list[str] = []
-        if rel_path:
-            clauses.append("rel_path = ?")
-            params.append(rel_path)
-        if assignee:
-            clauses.append("assignee = ?")
-            params.append(assignee)
-        if due_date:
-            clauses.append("due_date = ?")
-            params.append(due_date)
-        where = f"where {' and '.join(clauses)}" if clauses else ""
-        rows = self.connection.execute(
-            f"""
-            select rel_path, ext, text, todo_text, kind, assignee, due_date, author, created_at, location, structured
-            from comments
-            {where}
-            order by rel_path, location, id
-            """,
-            params,
-        ).fetchall()
-        return rows
+    ) -> list[dict[str, object]]:
+        rows = self._comment_rows
+        if rel_path is not None:
+            rows = [row for row in rows if row["rel_path"] == rel_path]
+        if assignee is not None:
+            rows = [row for row in rows if row["assignee"] == assignee]
+        if due_date is not None:
+            rows = [row for row in rows if row["due_date"] == due_date]
+        return list(rows)
 
 
-def to_fts_query(keyword: str) -> str:
-    terms = [part.strip() for part in keyword.replace("/", " ").replace("\\", " ").split() if part.strip()]
-    if not terms:
-        return keyword
-    return " OR ".join(f'"{term}"' for term in terms)
+def _search_terms(keyword: str) -> list[str]:
+    parts = [part.strip() for part in re.split(r"[\s/\\]+", keyword) if part.strip()]
+    return parts or [keyword]
+
+
+def _matches_terms(haystacks: tuple[str, ...], terms: list[str]) -> bool:
+    lowered_haystacks = [item.casefold() for item in haystacks]
+    return any(term.casefold() in haystack for term in terms for haystack in lowered_haystacks)
+
+
+def _build_snippet(content: str, terms: list[str], window: int = 120) -> str | None:
+    lowered = content.casefold()
+    best_index: int | None = None
+    best_term = ""
+    for term in terms:
+        index = lowered.find(term.casefold())
+        if index >= 0 and (best_index is None or index < best_index):
+            best_index = index
+            best_term = term
+    if best_index is None:
+        return None
+    start = max(best_index - 30, 0)
+    end = min(best_index + max(len(best_term), 1) + 60, len(content))
+    snippet = content[start:end].replace("\n", " ").strip()
+    if len(snippet) > window:
+        snippet = snippet[:window].rstrip()
+    return snippet

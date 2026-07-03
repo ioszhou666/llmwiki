@@ -6,10 +6,10 @@ from pathlib import Path
 from .mcp_runtime import WikiRuntime
 
 
-def create_server(project_root: Path, db_path: Path | None = None):
+def create_server(project_root: Path):
     from mcp.server.fastmcp import FastMCP
 
-    runtime = WikiRuntime(project_root=project_root, db_path=db_path)
+    runtime = WikiRuntime(project_root=project_root)
     server = FastMCP(
         name="llm-wiki",
         instructions=(
@@ -69,55 +69,55 @@ def create_server(project_root: Path, db_path: Path | None = None):
     def get_query_prompt(question: str, limit: int = 6) -> dict[str, str]:
         return runtime.get_query_prompt(question, limit=limit)
 
-    @server.tool(name="doctor", description="Inspect runtime status for the wiki workspace and optional indexed docs tool layer.")
+    @server.tool(name="doctor", description="Inspect runtime status for the wiki workspace and optional on-demand docs tool layer.")
     def doctor() -> dict[str, object]:
         return runtime.doctor()
 
     @server.tool(
-        name="index_documents",
-        description="Auxiliary utility tool: index docs/ into the local SQLite/FTS store for deterministic document helpers.",
+        name="scan_documents",
+        description="Auxiliary utility tool: scan docs/ on demand and build an ephemeral in-memory document view.",
     )
-    def index_documents() -> dict[str, object]:
-        return runtime.index_documents()
+    def scan_documents() -> dict[str, object]:
+        return runtime.scan_documents()
 
     @server.tool(
         name="list_document_paths",
-        description="Auxiliary utility tool: list allowed indexed document paths from docs/.",
+        description="Auxiliary utility tool: list allowed document paths from docs/ using on-demand scan.",
     )
     def list_document_paths() -> dict[str, list[str]]:
         return {"datas": runtime.list_document_paths()}
 
     @server.tool(
         name="count_files_by_extension",
-        description="Auxiliary utility tool: count indexed docs/ files by extension such as docx, xlsx, md, or py.",
+        description="Auxiliary utility tool: count docs/ files by extension such as docx, xlsx, md, or py.",
     )
     def count_files_by_extension(extension: str) -> dict[str, int]:
         return runtime.count_files_by_extension(extension)
 
     @server.tool(
         name="count_supported_extensions",
-        description="Auxiliary utility tool: count all indexed docs/ file types currently present.",
+        description="Auxiliary utility tool: count all supported docs/ file types currently present.",
     )
     def count_supported_extensions() -> dict[str, int]:
         return runtime.count_supported_extensions()
 
     @server.tool(
         name="search_related_paths",
-        description="Auxiliary utility tool: search indexed docs/ and extracted comments by keyword.",
+        description="Auxiliary utility tool: search docs/ and extracted comments by keyword using on-demand scan.",
     )
     def search_related_paths(keyword: str, limit: int = 20) -> dict[str, list[str]]:
         return runtime.search_related_paths(keyword, limit=limit)
 
     @server.tool(
         name="find_paths_by_basename",
-        description="Auxiliary utility tool: find indexed docs/ paths by exact basename.",
+        description="Auxiliary utility tool: find docs/ paths by exact basename.",
     )
     def find_paths_by_basename(basename: str) -> dict[str, list[str]]:
         return runtime.find_paths_by_basename(basename)
 
     @server.tool(
         name="get_document_record",
-        description="Auxiliary utility tool: inspect one indexed document's content and extracted comments.",
+        description="Auxiliary utility tool: inspect one scanned document's content and extracted comments.",
     )
     def get_document_record(rel_path: str) -> dict[str, object]:
         return runtime.get_document_record(rel_path)
@@ -135,7 +135,7 @@ def create_server(project_root: Path, db_path: Path | None = None):
 
     @server.tool(
         name="answer_question_local",
-        description="Auxiliary utility tool: answer contest-style questions with the deterministic local docs engine.",
+        description="Auxiliary utility tool: answer contest-style questions with the deterministic on-demand docs engine.",
     )
     def answer_question_local(question: str) -> dict[str, object]:
         return runtime.answer_question_local(question)
@@ -149,14 +149,14 @@ def create_server(project_root: Path, db_path: Path | None = None):
 
     @server.tool(
         name="build_pivot_chart",
-        description="Auxiliary utility tool: build a pivot chart from an indexed Excel document.",
+        description="Auxiliary utility tool: build a pivot chart from a scanned Excel document.",
     )
     def build_pivot_chart(rel_path: str) -> dict[str, object]:
         return runtime.build_pivot_chart(rel_path)
 
     @server.tool(
         name="run_python_document",
-        description="Auxiliary utility tool: run an indexed Python document through the controlled execution path.",
+        description="Auxiliary utility tool: run a scanned Python document through the controlled execution path.",
     )
     def run_python_document(rel_path: str) -> dict[str, object]:
         return runtime.run_python_document(rel_path)
@@ -167,14 +167,13 @@ def create_server(project_root: Path, db_path: Path | None = None):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the llm-wiki MCP server over stdio")
     parser.add_argument("--project-root", type=Path, required=True)
-    parser.add_argument("--db", type=Path, default=None)
     return parser
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    server = create_server(project_root=args.project_root.resolve(), db_path=args.db)
+    server = create_server(project_root=args.project_root.resolve())
     server.run(transport="stdio")
 
 
