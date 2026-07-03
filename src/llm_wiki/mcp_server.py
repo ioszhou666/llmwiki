@@ -13,8 +13,8 @@ def create_server(project_root: Path, db_path: Path | None = None):
     server = FastMCP(
         name="llm-wiki",
         instructions=(
-            "Use this server to inspect indexed documents, comments, local question-answering results, "
-            "and deterministic fix/execution helpers for the llm-wiki project."
+            "Use this server to maintain and query a Claude-native LLM Wiki. "
+            "The primary workflow is ingest, curation, linting, and wiki-grounded querying."
         ),
     )
 
@@ -44,23 +44,15 @@ def create_server(project_root: Path, db_path: Path | None = None):
     def wiki_claude_playbook() -> str:
         return runtime.claude_playbook()["content"]
 
-    @server.tool(name="index_documents", description="Index docs/ into the local SQLite and FTS store.")
-    def index_documents() -> dict[str, object]:
-        return runtime.index_documents()
-
-    @server.tool(name="doctor", description="Inspect llm-wiki runtime status for the current project root.")
-    def doctor() -> dict[str, object]:
-        return runtime.doctor()
-
     @server.tool(name="ingest_wiki_local", description="Seed wiki pages from raw/ using deterministic extraction packets.")
     def ingest_wiki_local(source: str | None = None) -> dict[str, object]:
         return runtime.ingest_wiki_local(source=source)
 
-    @server.tool(name="query_wiki_local", description="Search the curated wiki pages instead of raw indexed docs.")
+    @server.tool(name="query_wiki_local", description="Search the curated wiki pages.")
     def query_wiki_local(question: str, limit: int = 5) -> dict[str, object]:
         return runtime.query_wiki_local(question, limit=limit)
 
-    @server.tool(name="lint_wiki", description="Check whether raw/, wiki/, index.md and log.md stay aligned.")
+    @server.tool(name="lint_wiki", description="Check whether raw/, wiki/, index.md, and log.md stay aligned.")
     def lint_wiki() -> dict[str, object]:
         return runtime.lint_wiki()
 
@@ -75,58 +67,6 @@ def create_server(project_root: Path, db_path: Path | None = None):
     @server.tool(name="get_query_prompt", description="Get the canonical Claude Code query prompt for this project.")
     def get_query_prompt(question: str, limit: int = 6) -> dict[str, str]:
         return runtime.get_query_prompt(question, limit=limit)
-
-    @server.tool(name="list_document_paths", description="List every indexed relative document path.")
-    def list_document_paths() -> dict[str, list[str]]:
-        return {"datas": runtime.list_document_paths()}
-
-    @server.tool(name="list_question_groups", description="List every question/group-*.md file name.")
-    def list_question_groups() -> dict[str, list[str]]:
-        return {"datas": runtime.list_question_groups()}
-
-    @server.tool(name="count_files_by_extension", description="Count files by extension such as docx, md, py, xlsx.")
-    def count_files_by_extension(extension: str) -> dict[str, int]:
-        return runtime.count_files_by_extension(extension)
-
-    @server.tool(name="count_supported_extensions", description="Count all supported file types in the index.")
-    def count_supported_extensions() -> dict[str, int]:
-        return runtime.count_supported_extensions()
-
-    @server.tool(name="search_related_paths", description="Find related document paths by keyword using FTS and comment search.")
-    def search_related_paths(keyword: str, limit: int = 20) -> dict[str, list[str]]:
-        return runtime.search_related_paths(keyword, limit=limit)
-
-    @server.tool(name="find_paths_by_basename", description="Find paths by exact basename match.")
-    def find_paths_by_basename(basename: str) -> dict[str, list[str]]:
-        return runtime.find_paths_by_basename(basename)
-
-    @server.tool(name="get_document_record", description="Read indexed content and comments for one relative path.")
-    def get_document_record(rel_path: str) -> dict[str, object]:
-        return runtime.get_document_record(rel_path)
-
-    @server.tool(name="list_comments", description="List extracted comments filtered by path, assignee, or due date.")
-    def list_comments(rel_path: str | None = None, assignee: str | None = None, due_date: str | None = None) -> dict[str, list[dict[str, object]]]:
-        return runtime.list_comments(rel_path=rel_path, assignee=assignee, due_date=due_date)
-
-    @server.tool(name="answer_question_local", description="Answer a contest-style question using the deterministic local engine.")
-    def answer_question_local(question: str) -> dict[str, object]:
-        return runtime.answer_question_local(question)
-
-    @server.tool(name="answer_group_local", description="Answer one question group file using the deterministic local engine.")
-    def answer_group_local(group_name: str) -> dict[str, object]:
-        return runtime.answer_group_local(group_name)
-
-    @server.tool(name="apply_fixes", description="Apply deterministic fixes for a relative path into output/fixed.")
-    def apply_fixes(rel_path: str) -> dict[str, object]:
-        return runtime.apply_fixes(rel_path)
-
-    @server.tool(name="build_pivot_chart", description="Build a pivot chart for an Excel document.")
-    def build_pivot_chart(rel_path: str) -> dict[str, object]:
-        return runtime.build_pivot_chart(rel_path)
-
-    @server.tool(name="run_python_document", description="Run a Python document through the controlled local execution path.")
-    def run_python_document(rel_path: str) -> dict[str, object]:
-        return runtime.run_python_document(rel_path)
 
     return server
 

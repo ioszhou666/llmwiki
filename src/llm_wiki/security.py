@@ -73,16 +73,6 @@ INDIRECT_EXECUTION_PATTERNS = (
     re.compile(r"根据.+内容执行"),
     re.compile(r"按.+说明操作"),
 )
-MUTATION_ALLOWED_KINDS = frozenset(
-    {
-        "fix_document",
-        "fix_by_assignee",
-        "pivot_chart",
-        "pivot_chart_by_keyword",
-        "run_document",
-        "run_document_by_keyword",
-    }
-)
 COMMAND_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9._-]*")
 PATH_TOKEN_RE = re.compile(r"[A-Za-z0-9_./\\*-]+")
 
@@ -201,7 +191,7 @@ class PermissionPolicy:
             return REJECT_MESSAGE
         if self.contains_prompt_injection(question):
             return REJECT_MESSAGE
-        if parsed_kind not in MUTATION_ALLOWED_KINDS and self.contains_dangerous_side_effect(question):
+        if self.contains_dangerous_side_effect(question):
             return REJECT_MESSAGE
         if self.is_command_denied(question):
             return REJECT_MESSAGE

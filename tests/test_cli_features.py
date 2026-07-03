@@ -22,28 +22,10 @@ def _run_cli(*args: str, workdir: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_cli_ask_doctor_and_bootstrap(tmp_path: Path) -> None:
+def test_cli_bootstrap_and_workflow_commands(tmp_path: Path) -> None:
     project_root = Path(__file__).resolve().parents[1]
     workspace = tmp_path / "workspace"
     build_sample_workspace(workspace)
-
-    ask = _run_cli(
-        "--project-root",
-        str(workspace),
-        "ask",
-        "--question",
-        "env_config.xml",
-        workdir=project_root,
-    )
-    assert ask.returncode == 0
-    assert "env_config.xml" in ask.stdout
-
-    doctor = _run_cli("--project-root", str(workspace), "doctor", workdir=project_root)
-    assert doctor.returncode == 0
-    payload = json.loads(doctor.stdout)
-    assert payload["sqlite_fts5"] is True
-    assert "docx" in payload["supported_extensions"]
-    assert "claude_code" in payload
 
     bootstrap_target = tmp_path / "bootstrapped"
     bootstrap = _run_cli("--project-root", str(workspace), "bootstrap-demo", "--target", str(bootstrap_target), workdir=project_root)
@@ -64,46 +46,37 @@ def test_cli_ask_doctor_and_bootstrap(tmp_path: Path) -> None:
     ]
 
 
-def test_cli_validate_runs_end_to_end(tmp_path: Path) -> None:
+def test_cli_ingest_query_lint_and_status(tmp_path: Path) -> None:
     project_root = Path(__file__).resolve().parents[1]
     workspace = tmp_path / "workspace"
     build_sample_workspace(workspace)
 
-    validate = _run_cli("--project-root", str(workspace), "validate", workdir=project_root)
-    assert validate.returncode == 0
-    payload = json.loads(validate.stdout)
-    assert payload["status"] == "ok"
-    assert payload["indexed_documents"] == 11
-    assert payload["question_groups"] == 2
-    assert payload["answer_outputs"] == ["output/group-1-answer.md", "output/group-2-answer.md"]
-    assert payload["fixed_outputs"] == ["output/fixed/产品V1需求.docx"]
-    assert (workspace / "output" / "group-1-answer.md").exists()
-    assert (workspace / "output" / "group-2-answer.md").exists()
-    assert (workspace / "output" / "audit.jsonl").exists()
+    ingest = _run_cli("--project-root", str(workspace), "ingest", workdir=project_root)
+    assert ingest.returncode == 0
+    ingest_payload = json.loads(ingest.stdout)
+    assert ingest_payload["ingested"] == 4
+    assert ingest_payload["summary_pages"]
+    assert ingest_payload["concept_pages"]
+    assert ingest_payload["entity_pages"]
 
-
-def test_cli_release_builds_deliverables(tmp_path: Path) -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    workspace = tmp_path / "workspace"
-    target = tmp_path / "release_bundle"
-    build_sample_workspace(workspace)
-
-    release = _run_cli(
+    query = _run_cli(
         "--project-root",
         str(workspace),
-        "release",
-        "--target",
-        str(target),
+        "query-wiki",
+        "--question",
+        "gauss database connection",
         workdir=project_root,
     )
-    assert release.returncode == 0
-    payload = json.loads(release.stdout)
-    assert payload["status"] == "ok"
-    assert payload["release_dir"] == target.as_posix()
-    assert (target / "OPEN_SOURCE_RESEARCH.md").exists()
-    assert (target / "SYSTEM_DESIGN.md").exists()
-    assert (target / "VALIDATION_REPORT.md").exists()
-    assert (target / "demo_output" / "group-1-answer.md").exists()
-    assert (target / "demo_output" / "group-2-answer.md").exists()
-    assert (target / "demo_output" / "audit.jsonl").exists()
-    assert (target / "fixed" / "产品V1需求.docx").exists()
+    assert query.returncode == 0
+    query_payload = json.loads(query.stdout)
+    assert query_payload["datas"]
+
+    lint = _run_cli("--project-root", str(workspace), "lint-wiki", workdir=project_root)
+    assert lint.returncode == 0
+    lint_payload = json.loads(lint.stdout)
+    assert lint_payload["status"] == "ok"
+
+    claude_status = _run_cli("--project-root", str(workspace), "claude-status", workdir=project_root)
+    assert claude_status.returncode == 0
+    status_payload = json.loads(claude_status.stdout)
+    assert "available" in status_payload
