@@ -1,10 +1,15 @@
 # llm-wiki
 
-`llm-wiki` 当前版本严格收敛到 Karpathy 风格的 `LLM Wiki` 主线：`Claude Code` 直接维护一个持续演化的 markdown wiki，本地 Python 代码只负责 deterministic seed、结构脚手架和安全边界。
+`llm-wiki` 当前版本按 Karpathy 风格的 `LLM Wiki` 实现：主系统不是“本地文件搜索问答器”，而是一个由 `Claude Code` 持续维护的 Markdown wiki。
 
-与 page curation 无关的旧文件搜索、题组答题、文档修复、图表生成、受控执行等代码已经从主系统中移除。
+核心定位：
 
-## 当前主结构
+- `raw/` 是原始证据层
+- `wiki/` 是持续演化的知识层
+- `Claude Code` 是 wiki maintainer
+- 本地 Python 代码负责 deterministic seed、结构化抽取、安全边界，以及可选的辅助工具层
+
+## 当前架构
 
 ```text
 project/
@@ -20,6 +25,7 @@ project/
 │  └─ graph/
 ├─ cache/
 │  └─ extracted/
+├─ docs/
 ├─ .claude/
 │  └─ commands/
 ├─ AGENTS.md
@@ -27,141 +33,130 @@ project/
 └─ Permission.json
 ```
 
-说明：
+目录职责：
 
 - `raw/`
-  - 原始证据层，只读
+  - 原始资料，只作为证据输入
 - `wiki/summaries/`
-  - source-grounded summary
+  - source-grounded summary page
 - `wiki/concepts/`
-  - 跨 source 的概念、流程、系统、项目、决策
+  - 概念、流程、系统、主题页
 - `wiki/entities/`
-  - 团队、产品、工具、服务、环境、负责人等命名实体
+  - 团队、服务、环境、负责人、产品等实体页
 - `wiki/syntheses/`
-  - 更高层聚合页
+  - 跨页面综合页
 - `wiki/overview/`
   - 导航、dashboard、knowledge map
 - `cache/extracted/`
-  - deterministic source packet
-- `AGENTS.md`
-  - 仓库级 maintainer 约束
-- `CLAUDE.md`
-  - Claude curation 规则
-- `.claude/commands/`
-  - Claude Code 命令入口
+  - 本地 deterministic source packet
+- `docs/`
+  - 可选的辅助文档工具层输入目录，不属于主 wiki 知识流
 
-## 设计原则
+## 主流程
 
-Karpathy 风格的重点不在“一次性检索问答”，而在：
+主系统只强调这条链路：
 
-1. 把原始资料编译成 wiki page
-2. 让模型优先维护 page
-3. 让知识随着资料增长持续演化
+1. `init-wiki`
+   - 初始化 wiki 工作区、`AGENTS.md`、`CLAUDE.md`、`.claude/commands`
+2. `ingest`
+   - 从 `raw/` 生成 `cache/extracted/` 和 wiki seed page
+3. `ingest-claude`
+   - 调用 Claude Code 按 staged workflow 维护 wiki
+4. `query-wiki`
+   - 本地查询 `wiki/`
+5. `query-wiki-claude`
+   - 让 Claude 基于 `wiki/` 片段回答
+6. `lint-wiki`
+   - 检查 `raw/`、`wiki/`、`index.md`、`log.md` 的一致性
 
-因此当前版本的主流程是：
+## 辅助工具层
 
-1. `ingest`
-   - 本地生成 `cache/extracted/`、`wiki/summaries/` seed、`wiki/concepts/` seed、`wiki/entities/` seed
-2. `ingest-claude`
-   - Claude 按 staged workflow 做真正的 curation
-3. `query-wiki`
-   - 从 `wiki/` 中本地检索
-4. `query-wiki-claude`
-   - 基于 `wiki/` 片段由 Claude 回答
-5. `lint-wiki`
-   - 检查结构和覆盖关系
+之前的文件检索、批注统计、修复、透视图、受控执行等能力没有再作为产品主流程保留。
 
-## Claude Code 的角色
+当前处理方式是：
 
-当前仓库里，`Claude Code` 不是问答后端，而是：
+- 主系统仍然是 Claude-native wiki
+- 这些旧能力作为可选的 MCP auxiliary utility tools 保留
+- 它们只服务于补充分析、结构化抽取、任务辅助，不再定义整个系统方向
 
-- `wiki/` 的 maintainer
-- `summaries / concepts / entities / syntheses` 的编辑者
-- `index.md / overview / log.md` 的维护者
+当前辅助 MCP 工具包括：
 
-本地代码只做：
+- `doctor`
+- `index_documents`
+- `list_document_paths`
+- `count_files_by_extension`
+- `count_supported_extensions`
+- `search_related_paths`
+- `find_paths_by_basename`
+- `get_document_record`
+- `list_comments`
+- `answer_question_local`
+- `apply_fixes`
+- `build_pivot_chart`
+- `run_python_document`
 
-- 文档解析
-- 批注/TODO 提取
-- deterministic seed 生成
-- 安全边界
-
-## 主要命令
+## 安装与命令
 
 ```powershell
 python -m pip install -e .
+```
 
+示例：
+
+```powershell
 llm-wiki --project-root D:\llmwiki\demo init-wiki
-llm-wiki --project-root D:\llmwiki\demo bootstrap-demo --target D:\llmwiki\demo
 llm-wiki --project-root D:\llmwiki\demo ingest
 llm-wiki --project-root D:\llmwiki\demo ingest-claude
-llm-wiki --project-root D:\llmwiki\demo claude-playbook
-llm-wiki --project-root D:\llmwiki\demo print-ingest-workflow
 llm-wiki --project-root D:\llmwiki\demo query-wiki --question "CRM migration"
 llm-wiki --project-root D:\llmwiki\demo query-wiki-claude --question "当前 wiki 对 CRM migration 的结论是什么"
 llm-wiki --project-root D:\llmwiki\demo lint-wiki
+llm-wiki --project-root D:\llmwiki\demo print-ingest-workflow
+llm-wiki --project-root D:\llmwiki\demo claude-playbook
 llm-wiki --project-root D:\llmwiki\demo claude-status
 llm-wiki-mcp --project-root D:\llmwiki\demo
 ```
 
-## 当前 staged workflow
+## 在 Claude Code 中接入
 
-`ingest-claude` 和 `print-ingest-workflow` 当前输出三个阶段：
-
-1. `source-curation`
-   - 维护 `wiki/summaries/*.md`
-2. `concept-and-entity-synthesis`
-   - 从 `wiki/concepts/` 和 `wiki/entities/` seed 起步
-   - 合并重复页
-   - 提炼跨 source 知识
-3. `index-and-log-finalize`
-   - 刷新 `index.md`、`overview/`、`log.md`
-
-## MCP 接入
-
-如果要在 Claude Code 中作为外部工具使用：
+将 MCP server 注册到 Claude Code：
 
 ```powershell
 claude mcp add llmwiki -- python -m llm_wiki.mcp_server --project-root D:\llmwiki\demo
 ```
 
-当前 wiki 主资源与工具：
+建议优先使用的 wiki 资源与工具：
 
-- `wiki://status`
-- `wiki://curation-status`
-- `wiki://claude-playbook`
-- `wiki://permission-policy`
-- `wiki://security-summary`
-- `ingest_wiki_local`
-- `query_wiki_local`
-- `lint_wiki`
-- `get_ingest_prompt`
-- `get_ingest_workflow`
-- `get_query_prompt`
+- 资源
+  - `wiki://status`
+  - `wiki://curation-status`
+  - `wiki://claude-playbook`
+  - `wiki://permission-policy`
+  - `wiki://security-summary`
+- 工具
+  - `ingest_wiki_local`
+  - `get_ingest_workflow`
+  - `lint_wiki`
+  - `query_wiki_local`
+  - `get_query_prompt`
 
 ## 当前状态
 
-当前版本已经落地：
+当前版本已经明确完成两件事：
 
-- Claude-native wiki 目录结构
-- `AGENTS.md` 与 `CLAUDE.md` 双约束
-- `.claude/commands` 入口
-- `summaries / concepts / entities / overview` seed 体系
-- staged Claude workflow
-- wiki-only MCP 资源与工具
-- 安全边界
+- 按 Karpathy 风格收敛到 `raw -> wiki -> Claude-maintained knowledge base`
+- 将旧式文件问答/修复/执行逻辑降级为 MCP 辅助工具层，而不是主系统
 
 测试状态：
 
 ```text
-12 passed
+14 passed
 ```
 
 ## 相关文档
 
-- 开源调研：[docs/OPEN_SOURCE_RESEARCH.md](D:/llmwiki/project/docs/OPEN_SOURCE_RESEARCH.md)
-- Claude 使用：[docs/CLAUDE_USAGE.md](D:/llmwiki/project/docs/CLAUDE_USAGE.md)
-- 系统设计：[docs/SYSTEM_DESIGN.md](D:/llmwiki/project/docs/SYSTEM_DESIGN.md)
-- 逻辑细节：[docs/LOGIC_DETAILS.md](D:/llmwiki/project/docs/LOGIC_DETAILS.md)
-- 安全加固：[docs/SECURITY_HARDENING.md](D:/llmwiki/project/docs/SECURITY_HARDENING.md)
-- Karpathy 对齐说明：[docs/KARPATHY_ALIGNMENT.md](D:/llmwiki/project/docs/KARPATHY_ALIGNMENT.md)
+- [docs/OPEN_SOURCE_RESEARCH.md](docs/OPEN_SOURCE_RESEARCH.md)
+- [docs/CLAUDE_USAGE.md](docs/CLAUDE_USAGE.md)
+- [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)
+- [docs/LOGIC_DETAILS.md](docs/LOGIC_DETAILS.md)
+- [docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md)
+- [docs/KARPATHY_ALIGNMENT.md](docs/KARPATHY_ALIGNMENT.md)

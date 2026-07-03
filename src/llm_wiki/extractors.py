@@ -21,15 +21,30 @@ OOXML_NS = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
 }
+
 STRUCTURED_TODO_RE = re.compile(
-    r"todo\s*[:：]\s*(?P<todo>.+?)\s*[，,]\s*to\s*[:：]\s*(?P<to>.+?)\s*[，,]\s*end_date\s*[:：]\s*(?P<end_date>\d{8})",
-    re.IGNORECASE,
+    r"""
+    todo
+    \s*[:：]?\s*
+    (?P<todo>.*?)
+    \s+
+    to
+    \s*[:：]\s*
+    (?P<to>.+?)
+    \s+
+    end_date
+    \s*[:：]\s*
+    (?P<end_date>\d{8})
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
+
 REPLACE_PATTERNS = (
     re.compile(r"把(?P<old>.+?)改成(?P<new>.+)"),
     re.compile(r"将(?P<old>.+?)改为(?P<new>.+)"),
     re.compile(r"replace\s+(?P<old>.+?)\s+with\s+(?P<new>.+)", re.IGNORECASE),
 )
+
 ADD_FIELD_PATTERNS = (
     re.compile(r"补充(?P<field>.+?)字段"),
     re.compile(r"新增(?P<field>.+?)字段"),
@@ -242,7 +257,7 @@ def extract_legacy_document(path: Path, extension: str) -> tuple[str, list[Comme
         if result.returncode == 0:
             return result.stdout, [], {"extraction_method": "tika_text"}
     fallback = read_text_with_fallback(path)
-    note = f"[legacy-{extension}-fallback] 未检测到可用转换器，当前内容可能不完整。"
+    note = f"[legacy-{extension}-fallback] no converter available, content may be incomplete."
     return f"{note}\n{fallback}", [], {"extraction_method": "plain_fallback"}
 
 
@@ -337,12 +352,25 @@ def extract_fix_actions(text: str) -> list[FixAction]:
     for pattern in REPLACE_PATTERNS:
         match = pattern.search(clean)
         if match:
-            actions.append(FixAction(kind="replace", source=clean, target=match.group("new").strip(" ，,。.;；"), field_name=match.group("old").strip(" ，,。.;；")))
+            actions.append(
+                FixAction(
+                    kind="replace",
+                    source=clean,
+                    target=match.group("new").strip(" ：:;；，,。."),
+                    field_name=match.group("old").strip(" ：:;；，,。."),
+                )
+            )
             return actions
     for pattern in ADD_FIELD_PATTERNS:
         match = pattern.search(clean)
         if match:
-            actions.append(FixAction(kind="add_field", source=clean, field_name=match.group("field").strip(" ，,。.;；")))
+            actions.append(
+                FixAction(
+                    kind="add_field",
+                    source=clean,
+                    field_name=match.group("field").strip(" ：:;；，,。."),
+                )
+            )
             return actions
     if clean:
         actions.append(FixAction(kind="manual", source=clean))

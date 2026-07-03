@@ -52,3 +52,51 @@ def test_mcp_runtime_wiki_flows(tmp_path: Path) -> None:
         assert "persistent wiki" in query_prompt["prompt"]
     finally:
         runtime.close()
+
+
+def test_mcp_runtime_legacy_utility_tools(tmp_path: Path) -> None:
+    build_sample_workspace(tmp_path)
+    docs_root = tmp_path / "docs"
+    docs_root.mkdir(parents=True, exist_ok=True)
+    (docs_root / "notes.md").write_text(
+        "# Notes\n\nTODO: update CRM migration note TO: 李四 END_DATE: 20260703\nCRM migration depends on gauss.\n",
+        encoding="utf-8",
+    )
+    (docs_root / "script.py").write_text("print('ok')\n", encoding="utf-8")
+
+    runtime = WikiRuntime(project_root=tmp_path)
+    try:
+        doctor = runtime.doctor()
+        assert doctor["docs_exists"] is True
+        assert doctor["wiki_exists"] is True
+
+        indexed = runtime.index_documents()
+        assert indexed["indexed"] == 2
+
+        paths = runtime.list_document_paths()
+        assert "docs/notes.md" in paths
+        assert "docs/script.py" in paths
+
+        assert runtime.count_files_by_extension("md") == {"md": 1}
+        assert runtime.count_supported_extensions() == {"md": 1, "py": 1}
+
+        related = runtime.search_related_paths("gauss")
+        assert "docs/notes.md" in related["datas"]
+
+        found = runtime.find_paths_by_basename("notes.md")
+        assert found == {"datas": ["docs/notes.md"]}
+
+        record = runtime.get_document_record("docs/notes.md")
+        assert record["extension"] == "md"
+        assert "CRM migration" in record["content"]
+
+        comments = runtime.list_comments(assignee="李四")
+        assert len(comments["datas"]) == 1
+
+        answered = runtime.answer_question_local("统计 md 文件数量")
+        assert answered == {"md": 1}
+
+        executed = runtime.run_python_document("docs/script.py")
+        assert executed == {"datas": ["ok"]}
+    finally:
+        runtime.close()

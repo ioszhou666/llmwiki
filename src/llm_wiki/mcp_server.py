@@ -14,7 +14,8 @@ def create_server(project_root: Path, db_path: Path | None = None):
         name="llm-wiki",
         instructions=(
             "Use this server to maintain and query a Claude-native LLM Wiki. "
-            "The primary workflow is ingest, curation, linting, and wiki-grounded querying."
+            "The primary workflow is ingest, curation, linting, and wiki-grounded querying. "
+            "Auxiliary deterministic document tools are available as a secondary utility layer."
         ),
     )
 
@@ -67,6 +68,98 @@ def create_server(project_root: Path, db_path: Path | None = None):
     @server.tool(name="get_query_prompt", description="Get the canonical Claude Code query prompt for this project.")
     def get_query_prompt(question: str, limit: int = 6) -> dict[str, str]:
         return runtime.get_query_prompt(question, limit=limit)
+
+    @server.tool(name="doctor", description="Inspect runtime status for the wiki workspace and optional indexed docs tool layer.")
+    def doctor() -> dict[str, object]:
+        return runtime.doctor()
+
+    @server.tool(
+        name="index_documents",
+        description="Auxiliary utility tool: index docs/ into the local SQLite/FTS store for deterministic document helpers.",
+    )
+    def index_documents() -> dict[str, object]:
+        return runtime.index_documents()
+
+    @server.tool(
+        name="list_document_paths",
+        description="Auxiliary utility tool: list allowed indexed document paths from docs/.",
+    )
+    def list_document_paths() -> dict[str, list[str]]:
+        return {"datas": runtime.list_document_paths()}
+
+    @server.tool(
+        name="count_files_by_extension",
+        description="Auxiliary utility tool: count indexed docs/ files by extension such as docx, xlsx, md, or py.",
+    )
+    def count_files_by_extension(extension: str) -> dict[str, int]:
+        return runtime.count_files_by_extension(extension)
+
+    @server.tool(
+        name="count_supported_extensions",
+        description="Auxiliary utility tool: count all indexed docs/ file types currently present.",
+    )
+    def count_supported_extensions() -> dict[str, int]:
+        return runtime.count_supported_extensions()
+
+    @server.tool(
+        name="search_related_paths",
+        description="Auxiliary utility tool: search indexed docs/ and extracted comments by keyword.",
+    )
+    def search_related_paths(keyword: str, limit: int = 20) -> dict[str, list[str]]:
+        return runtime.search_related_paths(keyword, limit=limit)
+
+    @server.tool(
+        name="find_paths_by_basename",
+        description="Auxiliary utility tool: find indexed docs/ paths by exact basename.",
+    )
+    def find_paths_by_basename(basename: str) -> dict[str, list[str]]:
+        return runtime.find_paths_by_basename(basename)
+
+    @server.tool(
+        name="get_document_record",
+        description="Auxiliary utility tool: inspect one indexed document's content and extracted comments.",
+    )
+    def get_document_record(rel_path: str) -> dict[str, object]:
+        return runtime.get_document_record(rel_path)
+
+    @server.tool(
+        name="list_comments",
+        description="Auxiliary utility tool: list extracted comments filtered by path, assignee, or due date.",
+    )
+    def list_comments(
+        rel_path: str | None = None,
+        assignee: str | None = None,
+        due_date: str | None = None,
+    ) -> dict[str, list[dict[str, object]]]:
+        return runtime.list_comments(rel_path=rel_path, assignee=assignee, due_date=due_date)
+
+    @server.tool(
+        name="answer_question_local",
+        description="Auxiliary utility tool: answer contest-style questions with the deterministic local docs engine.",
+    )
+    def answer_question_local(question: str) -> dict[str, object]:
+        return runtime.answer_question_local(question)
+
+    @server.tool(
+        name="apply_fixes",
+        description="Auxiliary utility tool: apply deterministic TODO/comment fixes to a document into output/fixed/.",
+    )
+    def apply_fixes(rel_path: str) -> dict[str, object]:
+        return runtime.apply_fixes(rel_path)
+
+    @server.tool(
+        name="build_pivot_chart",
+        description="Auxiliary utility tool: build a pivot chart from an indexed Excel document.",
+    )
+    def build_pivot_chart(rel_path: str) -> dict[str, object]:
+        return runtime.build_pivot_chart(rel_path)
+
+    @server.tool(
+        name="run_python_document",
+        description="Auxiliary utility tool: run an indexed Python document through the controlled execution path.",
+    )
+    def run_python_document(rel_path: str) -> dict[str, object]:
+        return runtime.run_python_document(rel_path)
 
     return server
 
